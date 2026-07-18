@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dockmon</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/alpinejs/3.13.5/cdn.min.js" defer></script>
+<style>
+:root {
+  --bg: #0f1117; --surface: #1a1d27; --surface2: #242834;
+  --border: #2e3345; --text: #e4e6ed; --text-dim: #8b8fa3;
+  --green: #22c55e; --yellow: #eab308; --red: #ef4444; --blue: #3b82f6;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:var(--bg); color:var(--text); font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; }
+.header { padding:1.5rem 2rem; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; }
+.header h1 { font-size:1.4rem; font-weight:600; }
+.header h1 span { color:var(--blue); }
+.header-right { display:flex; gap:1rem; align-items:center; }
+.badge { padding:0.25rem 0.6rem; border-radius:4px; font-size:0.75rem; font-weight:600; }
+.badge-dry { background:#eab30822; color:var(--yellow); }
+.badge-live { background:#22c55e22; color:var(--green); }
+nav { padding:0.75rem 2rem; border-bottom:1px solid var(--border); display:flex; gap:1rem; }
+nav a { color:var(--text-dim); text-decoration:none; padding:0.4rem 0.8rem; border-radius:6px; font-size:0.85rem; }
+nav a.active, nav a:hover { color:var(--text); background:var(--surface2); }
+.grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(340px,1fr)); gap:1rem; padding:2rem; }
+.card { background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:1.25rem; transition:border-color 0.2s; }
+.card:hover { border-color:var(--text-dim); }
+.card-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem; }
+.card-name { font-weight:600; font-size:1rem; }
+.status-dot { width:10px; height:10px; border-radius:50%; display:inline-block; }
+.dot-green { background:var(--green); box-shadow:0 0 6px var(--green); }
+.dot-yellow { background:var(--yellow); box-shadow:0 0 6px var(--yellow); }
+.dot-red { background:var(--red); box-shadow:0 0 6px var(--red); }
+.dot-gray { background:var(--text-dim); }
+.card-image { color:var(--text-dim); font-size:0.75rem; margin-bottom:0.5rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.card-eval { background:var(--surface2); border-radius:6px; padding:0.75rem; font-size:0.8rem; line-height:1.5; }
+.card-eval .label { color:var(--text-dim); }
+.card-meta { display:flex; justify-content:space-between; margin-top:0.5rem; font-size:0.7rem; color:var(--text-dim); }
+.confidence { font-weight:600; }
+.conf-high { color:var(--green); }
+.conf-mid { color:var(--yellow); }
+.conf-low { color:var(--red); }
+.card-actions { margin-top:0.75rem; display:flex; gap:0.5rem; }
+.btn { padding:0.35rem 0.75rem; border-radius:5px; border:1px solid var(--border); background:var(--surface2); color:var(--text); font-size:0.75rem; cursor:pointer; }
+.btn:hover { background:var(--border); }
+.btn-eval { border-color:var(--blue); color:var(--blue); }
+.events-panel { padding:2rem; }
+.events-panel h2 { font-size:1.1rem; margin-bottom:1rem; }
+table { width:100%; border-collapse:collapse; font-size:0.8rem; }
+th { text-align:left; padding:0.5rem; color:var(--text-dim); border-bottom:1px solid var(--border); font-weight:500; }
+td { padding:0.5rem; border-bottom:1px solid var(--border); }
+.type-badge { padding:0.15rem 0.4rem; border-radius:3px; font-size:0.7rem; font-weight:600; }
+.type-evaluation { background:#3b82f622; color:var(--blue); }
+.type-action { background:#eab30822; color:var(--yellow); }
+.type-restart { background:#ef444422; color:var(--red); }
+.loading { text-align:center; padding:3rem; color:var(--text-dim); }
+</style>
+</head>
+<body x-data="dashboard()" x-init="init()">
+
+<div class="header">
+  <h1><span>Dock</span>mon</h1>
+  <div class="header-right">
+    <template x-if="config">
+      <span class="badge" :class="config.monitoring.dry_run ? 'badge-dry' : 'badge-live'"
+            x-text="config.monitoring.dry_run ? 'DRY RUN' : 'LIVE'"></span>
+    </template>
+    <span style="font-size:0.75rem;color:var(--text-dim)" x-text="'Connected'"></span>
+  </div>
+</div>
+
+<nav>
+  <a href="/" class="active">Dashboard</a>
+  <a href="/explorer.html">Log Explorer</a>
+</nav>
+
+<template x-if="loading">
+  <div class="loading">Loading containers...</div>
+</template>
+
+<div class="grid" x-show="!loading">
+  <template x-for="c in containers" :key="c.name">
+    <div class="card">
+      <div class="card-header">
+        <span class="card-name" x-text="c.name"></span>
+        <span class="status-dot" :class="dotClass(c)"></span>
+      </div>
+      <div class="card-image" x-text="c.image || 'unknown'"></div>
+      <template x-if="c.last_evaluation">
+        <div class="card-eval">
+          <div><span class="label">Status: </span><span x-text="c.last_evaluation.ai_status"></span></div>
+          <div><span class="label">Confidence: </span><span class="confidence" :class="confClass(c.last_evaluation.confidence)" x-text="c.last_evaluation.confidence + '%'"></span></div>
+          <div x-show="c.last_evaluation.root_cause_category && c.last_evaluation.root_cause_category !== 'none'">
+            <span class="label">Root cause: </span><span x-text="c.last_evaluation.root_cause_category"></span>
+          </div>
+          <div><span class="label">Summary: </span><span x-text="c.last_evaluation.summary"></span></div>
+          <div class="card-meta">
+            <span x-text="timeAgo(c.last_evaluation.timestamp)"></span>
+            <span x-text="c.last_evaluation.model_used"></span>
+          </div>
+        </div>
+      </template>
+      <template x-if="!c.last_evaluation">
+        <div class="card-eval" style="color:var(--text-dim)">No evaluation yet</div>
+      </template>
+      <div class="card-actions">
+        <button class="btn btn-eval" @click="evalNow(c.name)" :disabled="evaluating===c.name">
+          <span x-text="evaluating===c.name ? 'Evaluating...' : 'Evaluate Now'"></span>
+        </button>
+        <a class="btn" :href="'/explorer.html?container=' + c.name">Logs</a>
+      </div>
+    </div>
+  </template>
+</div>
+
+<div class="events-panel">
+  <h2>Recent Events</h2>
+  <table>
+    <thead><tr><th>Time</th><th>Container</th><th>Type</th><th>Status</th><th>Confidence</th><th>Summary</th></tr></thead>
+    <tbody>
+      <template x-for="e in events" :key="e.id">
+        <tr>
+          <td x-text="timeAgo(e.timestamp)"></td>
+          <td x-text="e.container"></td>
+          <td><span class="type-badge" :class="'type-'+e.event_type" x-text="e.event_type"></span></td>
+          <td x-text="e.ai_status || '-'"></td>
+          <td x-text="e.confidence !== null ? e.confidence + '%' : '-'"></td>
+          <td style="max-width:400px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="e.summary || '-'"></td>
+        </tr>
+      </template>
+    </tbody>
+  </table>
+</div>
+
+<script>
+function dashboard() {
+  return {
+    containers: [],
+    events: [],
+    config: null,
+    loading: true,
+    evaluating: null,
+    eventSource: null,
+
+    async init() {
+      await Promise.all([this.fetchContainers(), this.fetchEvents(), this.fetchConfig()]);
+      this.loading = false;
+      this.connectSSE();
+    },
+
+    async fetchContainers() {
+      try {
+        const r = await fetch('/api/containers');
+        this.containers = await r.json();
+      } catch(e) { console.error('Failed to fetch containers', e); }
+    },
+
+    async fetchEvents() {
+      try {
+        const r = await fetch('/api/events?limit=20');
+        this.events = await r.json();
+      } catch(e) { console.error('Failed to fetch events', e); }
+    },
+
+    async fetchConfig() {
+      try {
+        const r = await fetch('/api/config');
+        this.config = await r.json();
+      } catch(e) { console.error('Failed to fetch config', e); }
+    },
+
+    connectSSE() {
+      this.eventSource = new EventSource('/api/stream');
+      this.eventSource.onmessage = (e) => {
+        const data = JSON.parse(e.data);
+        if (data.type === 'evaluation' || data.type === 'action') {
+          this.fetchContainers();
+          this.fetchEvents();
+        }
+      };
+      this.eventSource.onerror = () => {
+        setTimeout(() => this.connectSSE(), 5000);
+      };
+    },
+
+    async evalNow(name) {
+      this.evaluating = name;
+      try {
+        await fetch(`/api/containers/${name}/evaluate`, {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'});
+        await this.fetchContainers();
+        await this.fetchEvents();
+      } catch(e) { console.error('Eval failed', e); }
+      this.evaluating = null;
+    },
+
+    dotClass(c) {
+      if (!c.running) return 'dot-gray';
+      if (!c.last_evaluation) return 'dot-gray';
+      const s = c.last_evaluation.ai_status;
+      const conf = c.last_evaluation.confidence;
+      if (s === 'healthy' && conf >= 70) return 'dot-green';
+      if (s === 'healthy') return 'dot-yellow';
+      return 'dot-red';
+    },
+
+    confClass(conf) {
+      if (conf >= 70) return 'conf-high';
+      if (conf >= 40) return 'conf-mid';
+      return 'conf-low';
+    },
+
+    timeAgo(ts) {
+      if (!ts) return '';
+      const diff = (Date.now() - new Date(ts+'Z').getTime()) / 1000;
+      if (diff < 60) return Math.round(diff) + 's ago';
+      if (diff < 3600) return Math.round(diff/60) + 'm ago';
+      if (diff < 86400) return Math.round(diff/3600) + 'h ago';
+      return Math.round(diff/86400) + 'd ago';
+    }
+  };
+}
+</script>
+</body>
+</html>

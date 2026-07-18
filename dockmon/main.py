@@ -1,4 +1,4 @@
-"""Dockmon entry point — runs startup checks then the monitor loop."""
+"""Dockmon entry point — runs startup checks, monitor loop, and web server."""
 
 from __future__ import annotations
 
@@ -6,6 +6,11 @@ import asyncio
 import logging
 import signal
 import sys
+from pathlib import Path
+
+import uvicorn
+from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 
 from dockmon.config import load_config, DockmonConfig
 from dockmon.db import init_db, verify_tables
@@ -17,6 +22,8 @@ from dockmon.alerts import (
     init_alerts, alert_restart, alert_dry_run, alert_escalation,
     alert_cooldown_skip, alert_error,
 )
+from dockmon.api.routes import router as api_router, set_config
+from dockmon.api.events import router as sse_router, publish
 
 logging.basicConfig(
     level=logging.INFO,
@@ -34,26 +41,38 @@ def _handle_signal(sig, frame):
     _shutdown.set()
 
 
+def create_app(cfg: DockmonConfig) -> FastAPI:
+    """Create the FastAPI application."""
+    app = FastAPI(title="Dockmon", version="0.1.0")
+    set_config(cfg)
+    app.include_router(api_router)
+    app.include_router(sse_router)
+
+    # Serve frontend
+    frontend_dir = Path(__file__).parent.parent / "frontend"
+    if frontend_dir.exists():
+        app.mount("/", StaticFiles(directory=str(frontend_dir), html=True), name="frontend")
+
+    return app
+
+
 def startup_check(cfg: DockmonConfig) -> None:
-    """Run all startup checks: config, database, Docker connection, alerts."""
+    """Run all startup checks."""
     print("=" * 50)
-    print("  Dockmon — AI Container Monitor")
+    print("  Dockmon -- AI Container Monitor")
     print("=" * 50)
     print()
 
-    # 1. Config
     enabled = [c for c in cfg.containers if c.enabled]
     logger.info("Config loaded: %d container(s) to monitor", len(enabled))
     for c in enabled:
         logger.info("  - %s", c.name)
 
-    # 2. Database
     conn = init_db(cfg.monitoring.db_path)
     tables = verify_tables(conn)
     logger.info("Database OK: %s", tables)
     conn.close()
 
-    # 3. Docker
     client = get_client()
     version = client.version()["Version"]
     containers = client.containers.list()
@@ -64,7 +83,6 @@ def startup_check(cfg: DockmonConfig) -> None:
         status = "FOUND" if c.name in running_names else "NOT FOUND"
         logger.info("  - %s: %s", c.name, status)
 
-    # 4. Alerts
     init_alerts(cfg.alerts.urls)
 
     logger.info("Mode: %s", "DRY RUN" if cfg.monitoring.dry_run else "LIVE")
@@ -114,7 +132,6 @@ async def monitor_cycle(cfg: DockmonConfig) -> None:
         # 3. Evaluate with AI
         model = container_cfg.model_override or cfg.ollama.default_model
 
-        # Check for baseline
         baseline = None
         row = conn.execute(
             "SELECT healthy_log_sample FROM baselines WHERE container = ?",
@@ -151,34 +168,41 @@ async def monitor_cycle(cfg: DockmonConfig) -> None:
                 summary, action_taken, log_snapshot, prompt_version, model_used)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
-                container_cfg.name,
-                "evaluation",
-                result.status,
-                result.confidence,
-                result.root_cause_category,
-                result.summary,
-                result.recommended_action,
-                log_snapshot,
-                prompt_version,
-                model,
+                container_cfg.name, "evaluation", result.status, result.confidence,
+                result.root_cause_category, result.summary, result.recommended_action,
+                log_snapshot, prompt_version, model,
             ),
         )
         conn.commit()
 
-        # 6. Execute action (restart / dry-run / cooldown skip / alert-only)
+        # Publish to SSE
+        publish("evaluation", {
+            "container": container_cfg.name,
+            "status": result.status,
+            "confidence": result.confidence,
+            "root_cause_category": result.root_cause_category,
+            "summary": result.summary,
+            "recommended_action": result.recommended_action,
+        })
+
+        # 6. Execute action
         action = execute_action(
-            result=result,
-            container=container,
-            conn=conn,
-            cooldown_cfg=cfg.cooldowns,
-            dry_run=cfg.monitoring.dry_run,
+            result=result, container=container, conn=conn,
+            cooldown_cfg=cfg.cooldowns, dry_run=cfg.monitoring.dry_run,
             log_snapshot=log_snapshot,
         )
 
         if action.action_taken != "none":
-            logger.info("[%s] Action: %s — %s", container_cfg.name, action.action_taken, action.message)
+            logger.info("[%s] Action: %s -- %s", container_cfg.name, action.action_taken, action.message)
 
-        # 7. Send alerts based on action
+            publish("action", {
+                "container": container_cfg.name,
+                "action": action.action_taken,
+                "success": action.success,
+                "message": action.message,
+            })
+
+        # 7. Send alerts
         if action.action_taken == "restart":
             alert_restart(container_cfg.name, result, action)
         elif action.action_taken == "dry_run_restart":
@@ -191,32 +215,25 @@ async def monitor_cycle(cfg: DockmonConfig) -> None:
             alert_cooldown_skip(container_cfg.name, 0)
 
         # 8. Store action event
-        if action.action_taken not in ("none",):
+        if action.action_taken != "none":
             conn.execute(
                 """INSERT INTO events
                    (container, event_type, ai_status, confidence, root_cause_category,
                     summary, action_taken, log_snapshot, model_used)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
-                    container_cfg.name,
-                    "action",
-                    result.status,
-                    result.confidence,
-                    result.root_cause_category,
-                    action.message,
-                    action.action_taken,
-                    action.log_snapshot[:2000] if action.log_snapshot else "",
-                    model,
+                    container_cfg.name, "action", result.status, result.confidence,
+                    result.root_cause_category, action.message, action.action_taken,
+                    action.log_snapshot[:2000] if action.log_snapshot else "", model,
                 ),
             )
             conn.commit()
 
-        # 9. Capture baseline if first healthy evaluation
+        # 9. Capture baseline
         if result.status == "healthy" and result.confidence >= 80 and baseline is None:
             baseline_logs = get_logs(container, tail=30)
             conn.execute(
-                """INSERT OR REPLACE INTO baselines (container, healthy_log_sample)
-                   VALUES (?, ?)""",
+                "INSERT OR REPLACE INTO baselines (container, healthy_log_sample) VALUES (?, ?)",
                 (container_cfg.name, baseline_logs[:2000]),
             )
             conn.commit()
@@ -226,26 +243,38 @@ async def monitor_cycle(cfg: DockmonConfig) -> None:
 
 
 async def run(cfg: DockmonConfig) -> None:
-    """Main loop: run monitor cycles until shutdown."""
+    """Run the monitor loop and web server concurrently."""
     signal.signal(signal.SIGTERM, _handle_signal)
     signal.signal(signal.SIGINT, _handle_signal)
 
     startup_check(cfg)
-    logger.info("Starting monitor loop...")
 
-    while not _shutdown.is_set():
-        try:
-            await monitor_cycle(cfg)
-        except Exception:
-            logger.exception("Error in monitor cycle")
-            alert_error(f"Monitor cycle failed. Check logs for details.")
+    # Start web server
+    app = create_app(cfg)
+    web_config = uvicorn.Config(app, host="0.0.0.0", port=8556, log_level="warning")
+    server = uvicorn.Server(web_config)
 
-        try:
-            await asyncio.wait_for(_shutdown.wait(), timeout=cfg.monitoring.poll_interval_seconds)
-            break
-        except asyncio.TimeoutError:
-            pass
+    async def run_server():
+        await server.serve()
 
+    async def run_monitor():
+        logger.info("Starting monitor loop...")
+        while not _shutdown.is_set():
+            try:
+                await monitor_cycle(cfg)
+            except Exception:
+                logger.exception("Error in monitor cycle")
+                alert_error("Monitor cycle failed. Check logs for details.")
+            try:
+                await asyncio.wait_for(_shutdown.wait(), timeout=cfg.monitoring.poll_interval_seconds)
+                break
+            except asyncio.TimeoutError:
+                pass
+        logger.info("Monitor loop stopped.")
+        server.should_exit = True
+
+    logger.info("Web UI: http://0.0.0.0:8556")
+    await asyncio.gather(run_server(), run_monitor())
     logger.info("Dockmon stopped.")
 
 
