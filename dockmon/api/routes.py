@@ -204,6 +204,7 @@ async def evaluate_container(name: str, req: EvalRequest):
     return {
         "container": name,
         "status": result.status,
+        "health_score": result.health_score,
         "confidence": result.confidence,
         "root_cause_category": result.root_cause_category,
         "summary": result.summary,

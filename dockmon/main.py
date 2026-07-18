@@ -176,9 +176,10 @@ async def _process_container(container_cfg, container, cfg: DockmonConfig, conn)
 
     # 4. Log the evaluation
     logger.info(
-        "[%s] -> %s (confidence=%d, origin=%s, category=%s, restart_helps=%s, action=%s): %s",
+        "[%s] -> %s [score=%d] (confidence=%d, origin=%s, category=%s, restart_helps=%s, action=%s): %s",
         container_cfg.name,
         result.status.upper(),
+        result.health_score,
         result.confidence,
         result.error_origin,
         result.root_cause_category,
@@ -208,6 +209,7 @@ async def _process_container(container_cfg, container, cfg: DockmonConfig, conn)
     publish("evaluation", {
         "container": container_cfg.name,
         "status": result.status,
+        "health_score": result.health_score,
         "confidence": result.confidence,
         "root_cause_category": result.root_cause_category,
         "error_origin": result.error_origin,
@@ -270,7 +272,7 @@ async def _process_container(container_cfg, container, cfg: DockmonConfig, conn)
         conn.commit()
 
     # 9. Capture baseline
-    if result.status == "healthy" and result.confidence >= 80 and baseline is None:
+    if result.status in ("healthy", "degraded") and result.confidence >= 80 and baseline is None:
         baseline_logs = get_logs(container, tail=30)
         conn.execute(
             "INSERT OR REPLACE INTO baselines (container, healthy_log_sample) VALUES (?, ?)",

@@ -33,6 +33,8 @@ nav a.active, nav a:hover { color:var(--text); background:var(--surface2); }
 .dot-yellow { background:var(--yellow); box-shadow:0 0 6px var(--yellow); }
 .dot-red { background:var(--red); box-shadow:0 0 6px var(--red); }
 .dot-gray { background:var(--text-dim); }
+.dot-orange { background:#f97316; box-shadow:0 0 6px #f97316; }
+.dot-purple { background:#a855f7; box-shadow:0 0 6px #a855f7; }
 .card-image { color:var(--text-dim); font-size:0.75rem; margin-bottom:0.5rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .card-eval { background:var(--surface2); border-radius:6px; padding:0.75rem; font-size:0.8rem; line-height:1.5; }
 .card-eval .label { color:var(--text-dim); }
@@ -117,7 +119,8 @@ td { padding:0.5rem; border-bottom:1px solid var(--border); }
       <template x-if="c.last_evaluation">
         <div class="card-eval">
           <div><span class="label">Status: </span><span x-text="c.last_evaluation.ai_status"></span></div>
-          <div><span class="label">Confidence: </span><span class="confidence" :class="confClass(c.last_evaluation.confidence)" x-text="c.last_evaluation.confidence + '%'"></span></div>
+          <div><span class="label">Score: </span><span class="confidence" :class="scoreClass(c.last_evaluation.health_score)" x-text="(c.last_evaluation.health_score || '-') + '/100'"></span>
+            <span style="margin-left:0.5rem" class="label">Confidence: </span><span class="confidence" :class="confClass(c.last_evaluation.confidence)" x-text="c.last_evaluation.confidence + '%'"></span></div>
           <div x-show="c.last_evaluation.root_cause_category && c.last_evaluation.root_cause_category !== 'none'">
             <span class="label">Root cause: </span><span x-text="c.last_evaluation.root_cause_category"></span>
           </div>
@@ -298,10 +301,17 @@ function dashboard() {
       if (!c.running) return 'dot-gray';
       if (!c.last_evaluation) return 'dot-gray';
       const s = c.last_evaluation.ai_status;
-      const conf = c.last_evaluation.confidence;
-      if (s === 'healthy' && conf >= 70) return 'dot-green';
-      if (s === 'healthy') return 'dot-yellow';
-      return 'dot-red';
+      if (s === 'healthy') return 'dot-green';
+      if (s === 'degraded') return 'dot-yellow';
+      if (s === 'unhealthy') return 'dot-orange';
+      if (s === 'critical') return 'dot-red';
+      return 'dot-gray';
+    },
+
+    scoreClass(score) {
+      if (score >= 80) return 'conf-high';
+      if (score >= 40) return 'conf-mid';
+      return 'conf-low';
     },
 
     confClass(conf) {

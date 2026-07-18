@@ -145,7 +145,7 @@ def execute_action(
     # No action recommended
     if result.recommended_action != "restart":
         # If healthy, check if we should reset cooldowns
-        if result.status == "healthy" and result.confidence >= 70:
+        if result.status in ("healthy", "degraded") and result.confidence >= 70:
             reset_cooldown_if_healthy(conn, name)
         return ActionResult(
             container_name=name,

@@ -16,12 +16,13 @@ from dockmon.config import OllamaConfig
 logger = logging.getLogger(__name__)
 
 PROMPT_DIR = Path(__file__).parent / "prompts"
-DEFAULT_PROMPT_VERSION = "v3_evaluate"
+DEFAULT_PROMPT_VERSION = "v4_evaluate"
 
 
 class EvaluationResult(BaseModel):
     """Structured response from the LLM."""
-    status: str  # "healthy" or "unhealthy"
+    status: str  # "healthy", "degraded", "unhealthy", or "critical"
+    health_score: int  # 0-100 numeric health score
     confidence: int
     root_cause_category: str
     error_origin: str  # "internal", "external", or "none"
@@ -34,9 +35,14 @@ class EvaluationResult(BaseModel):
     @classmethod
     def validate_status(cls, v: str) -> str:
         v = v.lower().strip()
-        if v not in ("healthy", "unhealthy"):
+        if v not in ("healthy", "degraded", "unhealthy", "critical"):
             raise ValueError(f"Invalid status: {v}")
         return v
+
+    @field_validator("health_score")
+    @classmethod
+    def validate_health_score(cls, v: int) -> int:
+        return max(0, min(100, v))
 
     @field_validator("confidence")
     @classmethod
@@ -105,6 +111,7 @@ def _make_fallback(container_name: str, reason: str) -> EvaluationResult:
     """Return a safe fallback result when the LLM fails."""
     return EvaluationResult(
         status="healthy",
+        health_score=50,
         confidence=0,
         root_cause_category="none",
         error_origin="none",
@@ -128,6 +135,7 @@ async def evaluate(
     if not ctx.filtered_lines:
         return EvaluationResult(
             status="healthy",
+            health_score=95,
             confidence=95,
             root_cause_category="none",
             error_origin="none",
