@@ -16,7 +16,7 @@ from dockmon.config import OllamaConfig
 logger = logging.getLogger(__name__)
 
 PROMPT_DIR = Path(__file__).parent / "prompts"
-DEFAULT_PROMPT_VERSION = "v4_evaluate"
+DEFAULT_PROMPT_VERSION = "v5_evaluate"
 
 
 class EvaluationResult(BaseModel):
@@ -75,6 +75,7 @@ class EvaluationContext:
     container_name: str
     filtered_lines: list[str]
     model: str
+    structured_summary: Optional[str] = None  # from log_analyzer
     baseline_sample: Optional[str] = None
     prompt_version: str = DEFAULT_PROMPT_VERSION
 
@@ -91,6 +92,11 @@ def _build_messages(ctx: EvaluationContext) -> tuple[str, str]:
     """Build system and user prompts for the LLM."""
     system_prompt = _load_prompt(ctx.prompt_version)
 
+    # v5: use structured summary from log_analyzer if available
+    if ctx.structured_summary:
+        return system_prompt, ctx.structured_summary
+
+    # Fallback: old-style filtered lines (v4 compat)
     user_parts = [f"Container: {ctx.container_name}"]
 
     if ctx.baseline_sample:
@@ -134,7 +140,7 @@ async def evaluate(
     Returns (result, prompt_version).
     Fails open on any error — returns a healthy fallback rather than crashing.
     """
-    if not ctx.filtered_lines:
+    if not ctx.filtered_lines and not ctx.structured_summary:
         return EvaluationResult(
             status="healthy",
             health_score=95,

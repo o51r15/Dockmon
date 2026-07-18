@@ -1,6 +1,6 @@
 ollama:
   base_url: "http://192.168.1.125:11434"
-  default_model: "qwen3:14b"
+  default_model: "llama3.1:8b"
   digest_model: "gemma4:latest"
   timeout_seconds: 120
 

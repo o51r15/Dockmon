@@ -17,6 +17,7 @@ from dockmon.config import load_config, DockmonConfig
 from dockmon.db import init_db, verify_tables, prune_old_events, vacuum_db
 from dockmon.docker_client import get_client, get_logs, list_containers
 from dockmon.log_pipeline import process_logs
+from dockmon.log_analyzer import analyze_logs
 from dockmon.ai_engine import evaluate, EvaluationContext
 from dockmon.actions import execute_action
 from dockmon.alerts import (
@@ -133,11 +134,19 @@ async def monitor_cycle(cfg: DockmonConfig) -> None:
 
 
 async def _process_container(container_cfg, container, cfg: DockmonConfig, conn) -> None:
-    """Process a single container: logs -> filter -> evaluate -> act -> alert."""
+    """Process a single container: logs -> analyze -> evaluate -> act -> alert."""
     # 1. Grab logs
     raw_logs = get_logs(container, tail=cfg.monitoring.log_lines_per_check)
 
-    # 2. Filter
+    # 2. Analyze with structured preprocessor (v5)
+    summary = analyze_logs(
+        container_name=container_cfg.name,
+        raw_logs=raw_logs,
+        ignore_patterns=container_cfg.ignore_patterns,
+        max_lines=cfg.monitoring.log_lines_per_check,
+    )
+
+    # Also run old filter for backward compat (log snapshot, baseline)
     batch = process_logs(
         container_name=container_cfg.name,
         raw_logs=raw_logs,
@@ -146,12 +155,13 @@ async def _process_container(container_cfg, container, cfg: DockmonConfig, conn)
     )
 
     logger.info(
-        "[%s] %d total lines -> %d forwarded (dropped: %d ignore, %d info-level)",
+        "[%s] %d lines analyzed | %d INFO, %d WARN, %d ERROR | recovery=%s",
         container_cfg.name,
-        batch.total_lines,
-        len(batch.filtered_lines),
-        batch.dropped_by_ignore,
-        batch.dropped_by_level,
+        summary.total_lines,
+        summary.severity_counts["info"],
+        summary.severity_counts["warn"],
+        summary.severity_counts["error"],
+        summary.recovery_detected,
     )
 
     # 3. Evaluate with AI
@@ -169,6 +179,7 @@ async def _process_container(container_cfg, container, cfg: DockmonConfig, conn)
         container_name=container_cfg.name,
         filtered_lines=batch.filtered_lines,
         model=model,
+        structured_summary=summary.to_prompt(),
         baseline_sample=baseline,
     )
 
