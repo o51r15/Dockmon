@@ -1,0 +1,39 @@
+ollama:
+  base_url: "http://ollama:11434"
+  default_model: "gemma2:2b"
+  digest_model: "llama3:8b"
+  timeout_seconds: 30
+
+monitoring:
+  poll_interval_seconds: 60
+  log_lines_per_check: 200
+  dry_run: true
+
+containers:
+  - name: "bitmagnet"
+    enabled: true
+    model_override: null
+    ignore_patterns:
+      - "^\\d{4}/\\d{2}/\\d{2}.*DEBUG"
+    compose_group: null
+  - name: "bitmagnet-postgres"
+    enabled: true
+    ignore_patterns:
+      - "checkpoint starting"
+      - "checkpoint complete"
+    compose_group: null
+
+cooldowns:
+  initial_minutes: 5
+  backoff_multiplier: 3
+  max_cooldown_minutes: 120
+  max_restarts_per_hour: 3
+
+alerts:
+  urls: []
+  # - "discord://webhook_id/webhook_token"
+  # - "gotify://hostname/token"
+
+digest:
+  enabled: true
+  schedule_cron: "0 7 * * *"

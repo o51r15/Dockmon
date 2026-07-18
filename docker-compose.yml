@@ -1,0 +1,16 @@
+services:
+  dockmon:
+    build: .
+    container_name: dockmon
+    restart: unless-stopped
+    ports:
+      - "8555:8555"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./config.yaml:/app/config/config.yaml:ro
+      - dockmon-data:/app/data
+    environment:
+      - TZ=America/New_York
+
+volumes:
+  dockmon-data:
