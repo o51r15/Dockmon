@@ -1,82 +1,43 @@
 ollama:
-  base_url: "http://192.168.1.125:11434"
+  base_url: "http://localhost:11434"
   default_model: "llama3.1:8b"
   digest_model: "gemma4:latest"
   timeout_seconds: 120
 
 monitoring:
-  poll_interval_seconds: 60
+  poll_interval_seconds: 300
   log_lines_per_check: 200
   dry_run: true
-  db_path: "/home/o51r15/scripts/dockmon/data/dockmon.db"
+  db_path: "/app/data/dockmon.db"
   retention_days: 90
 
 containers:
-  - name: "gluetun"
-    enabled: true
-    ignore_patterns:
-      - '^\d{4}/\d{2}/\d{2}.*INFO'
-    compose_group: null
-  - name: "bitmagnet"
-    enabled: true
-    ignore_patterns:
-      - '^\d{4}/\d{2}/\d{2}.*DEBUG'
-    compose_group: "bitmagnet"
-  - name: "bitmagnet-postgres"
-    enabled: true
-    ignore_patterns:
-      - "checkpoint starting"
-      - "checkpoint complete"
-    compose_group: "bitmagnet"
-  - name: "qbittorrent"
-    enabled: true
-    ignore_patterns: []
-    compose_group: null
-  - name: "kometa"
-    enabled: true
-    ignore_patterns: []
-    compose_group: null
-  - name: "audiobookshelf"
-    enabled: true
-    ignore_patterns: []
-    compose_group: null
-  - name: "pinchfork"
-    enabled: true
-    ignore_patterns: []
-    compose_group: "pinchfork"
-  - name: "pinchfork-db"
-    enabled: true
-    ignore_patterns:
-      - "checkpoint starting"
-      - "checkpoint complete"
-    compose_group: "pinchfork"
+  # Add your containers here. Examples:
+  #
+  # Simple container:
+  # - name: "nginx"
+  #   enabled: true
+  #   ignore_patterns: []
+  #   compose_group: null
+  #
+  # Container with ignore patterns (filter noisy log lines):
+  # - name: "postgres"
+  #   enabled: true
+  #   ignore_patterns:
+  #     - "checkpoint starting"
+  #     - "checkpoint complete"
+  #   compose_group: "myapp"
+  #
+  # Compose group: containers in the same group restart together.
+  # - name: "myapp-web"
+  #   enabled: true
+  #   ignore_patterns:
+  #     - '^\d{4}/\d{2}/\d{2}.*DEBUG'
+  #   compose_group: "myapp"
+  #   model_override: null  # optional: use a different model for this container
 
-  - name: "jellyfin"
-    enabled: true
-    ignore_patterns: []
-    compose_group: null
-  - name: "karakeep"
-    enabled: true
-    ignore_patterns: []
-    compose_group: "karakeep"
-  - name: "karakeep_chrome"
-    enabled: true
-    ignore_patterns: []
-    compose_group: "karakeep"
-  - name: "karakeep_meilisearch"
-    enabled: true
-    ignore_patterns: []
-    compose_group: "karakeep"
-  - name: "memos"
-    enabled: true
-    ignore_patterns: []
-    compose_group: null
-  - name: "tautulli"
-    enabled: true
-    ignore_patterns: []
-    compose_group: null
-  - name: "seerr"
-    enabled: true
+  - name: "example-container"
+    enabled: false
     ignore_patterns: []
     compose_group: null
 
@@ -90,6 +51,7 @@ alerts:
   urls: []
   # - "discord://webhook_id/webhook_token"
   # - "gotify://hostname/token"
+  # See https://github.com/caronc/apprise for supported services
 
 digest:
   enabled: true
