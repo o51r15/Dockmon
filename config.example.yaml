@@ -1,7 +1,7 @@
 ollama:
   base_url: "http://192.168.1.125:11434"
-  default_model: "llama3.2:3b"
-  digest_model: "llama3.1:8b"
+  default_model: "gemma4:latest"
+  digest_model: "gemma4:latest"
   timeout_seconds: 120
 
 monitoring:
@@ -22,6 +22,10 @@ containers:
     ignore_patterns:
       - "checkpoint starting"
       - "checkpoint complete"
+    compose_group: null
+  - name: "bentopdf"
+    enabled: true
+    ignore_patterns: []
     compose_group: null
 
 cooldowns:
