@@ -85,6 +85,17 @@ def startup_check(cfg: DockmonConfig) -> None:
         status = "FOUND" if c.name in running_names else "NOT FOUND"
         logger.info("  - %s: %s", c.name, status)
 
+    # Ollama connectivity
+    import httpx
+    try:
+        resp = httpx.get(f"{cfg.ollama.base_url}/api/tags", timeout=10)
+        models = [m["name"] for m in resp.json().get("models", [])]
+        logger.info("Ollama OK: %d model(s) available", len(models))
+        if cfg.ollama.default_model not in models:
+            logger.warning("  Model '%s' not found on server!", cfg.ollama.default_model)
+    except Exception as e:
+        logger.warning("Ollama unreachable at %s: %s (will retry during monitoring)", cfg.ollama.base_url, e)
+
     init_alerts(cfg.alerts.urls)
 
     logger.info("Mode: %s", "DRY RUN" if cfg.monitoring.dry_run else "LIVE")
@@ -109,139 +120,145 @@ async def monitor_cycle(cfg: DockmonConfig) -> None:
             logger.warning("Container %s not running, skipping", container_cfg.name)
             continue
 
-        container = running_map[container_cfg.name]
+        try:
+            await _process_container(container_cfg, running_map[container_cfg.name], cfg, conn)
+        except Exception:
+            logger.exception("Error processing container %s", container_cfg.name)
 
-        # 1. Grab logs
-        raw_logs = get_logs(container, tail=cfg.monitoring.log_lines_per_check)
+    conn.close()
 
-        # 2. Filter
-        batch = process_logs(
-            container_name=container_cfg.name,
-            raw_logs=raw_logs,
-            ignore_patterns=container_cfg.ignore_patterns,
-            max_lines=cfg.monitoring.log_lines_per_check,
-        )
 
-        logger.info(
-            "[%s] %d total lines -> %d forwarded (dropped: %d ignore, %d info-level)",
-            container_cfg.name,
-            batch.total_lines,
-            len(batch.filtered_lines),
-            batch.dropped_by_ignore,
-            batch.dropped_by_level,
-        )
+async def _process_container(container_cfg, container, cfg: DockmonConfig, conn) -> None:
+    """Process a single container: logs -> filter -> evaluate -> act -> alert."""
+    # 1. Grab logs
+    raw_logs = get_logs(container, tail=cfg.monitoring.log_lines_per_check)
 
-        # 3. Evaluate with AI
-        model = container_cfg.model_override or cfg.ollama.default_model
+    # 2. Filter
+    batch = process_logs(
+        container_name=container_cfg.name,
+        raw_logs=raw_logs,
+        ignore_patterns=container_cfg.ignore_patterns,
+        max_lines=cfg.monitoring.log_lines_per_check,
+    )
 
-        baseline = None
-        row = conn.execute(
-            "SELECT healthy_log_sample FROM baselines WHERE container = ?",
-            (container_cfg.name,),
-        ).fetchone()
-        if row:
-            baseline = row[0]
+    logger.info(
+        "[%s] %d total lines -> %d forwarded (dropped: %d ignore, %d info-level)",
+        container_cfg.name,
+        batch.total_lines,
+        len(batch.filtered_lines),
+        batch.dropped_by_ignore,
+        batch.dropped_by_level,
+    )
 
-        ctx = EvaluationContext(
-            container_name=container_cfg.name,
-            filtered_lines=batch.filtered_lines,
-            model=model,
-            baseline_sample=baseline,
-        )
+    # 3. Evaluate with AI
+    model = container_cfg.model_override or cfg.ollama.default_model
 
-        result, prompt_version = await evaluate(ctx, cfg.ollama)
+    baseline = None
+    row = conn.execute(
+        "SELECT healthy_log_sample FROM baselines WHERE container = ?",
+        (container_cfg.name,),
+    ).fetchone()
+    if row:
+        baseline = row[0]
 
-        # 4. Log the evaluation
-        logger.info(
-            "[%s] -> %s (confidence=%d, category=%s, action=%s): %s",
-            container_cfg.name,
-            result.status.upper(),
-            result.confidence,
-            result.root_cause_category,
-            result.recommended_action,
-            result.summary,
-        )
+    ctx = EvaluationContext(
+        container_name=container_cfg.name,
+        filtered_lines=batch.filtered_lines,
+        model=model,
+        baseline_sample=baseline,
+    )
 
-        # 5. Store evaluation event
-        log_snapshot = "\n".join(batch.filtered_lines[:50])
+    result, prompt_version = await evaluate(ctx, cfg.ollama)
+
+    # 4. Log the evaluation
+    logger.info(
+        "[%s] -> %s (confidence=%d, category=%s, action=%s): %s",
+        container_cfg.name,
+        result.status.upper(),
+        result.confidence,
+        result.root_cause_category,
+        result.recommended_action,
+        result.summary,
+    )
+
+    # 5. Store evaluation event
+    log_snapshot = "\n".join(batch.filtered_lines[:50])
+    conn.execute(
+        """INSERT INTO events
+           (container, event_type, ai_status, confidence, root_cause_category,
+            summary, action_taken, log_snapshot, prompt_version, model_used)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (
+            container_cfg.name, "evaluation", result.status, result.confidence,
+            result.root_cause_category, result.summary, result.recommended_action,
+            log_snapshot, prompt_version, model,
+        ),
+    )
+    conn.commit()
+
+    # Publish to SSE
+    publish("evaluation", {
+        "container": container_cfg.name,
+        "status": result.status,
+        "confidence": result.confidence,
+        "root_cause_category": result.root_cause_category,
+        "summary": result.summary,
+        "recommended_action": result.recommended_action,
+    })
+
+    # 6. Execute action
+    action = execute_action(
+        result=result, container=container, conn=conn,
+        cooldown_cfg=cfg.cooldowns, dry_run=cfg.monitoring.dry_run,
+        log_snapshot=log_snapshot,
+    )
+
+    if action.action_taken != "none":
+        logger.info("[%s] Action: %s -- %s", container_cfg.name, action.action_taken, action.message)
+
+        publish("action", {
+            "container": container_cfg.name,
+            "action": action.action_taken,
+            "success": action.success,
+            "message": action.message,
+        })
+
+    # 7. Send alerts
+    if action.action_taken == "restart":
+        alert_restart(container_cfg.name, result, action)
+    elif action.action_taken == "dry_run_restart":
+        alert_dry_run(container_cfg.name, result)
+    elif action.action_taken == "alert_only":
+        alert_escalation(container_cfg.name,
+                         conn.execute("SELECT consecutive_restarts FROM cooldowns WHERE container = ?",
+                                      (container_cfg.name,)).fetchone()[0])
+    elif action.action_taken == "cooldown_skip":
+        alert_cooldown_skip(container_cfg.name, 0)
+
+    # 8. Store action event
+    if action.action_taken != "none":
         conn.execute(
             """INSERT INTO events
                (container, event_type, ai_status, confidence, root_cause_category,
-                summary, action_taken, log_snapshot, prompt_version, model_used)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                summary, action_taken, log_snapshot, model_used)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
-                container_cfg.name, "evaluation", result.status, result.confidence,
-                result.root_cause_category, result.summary, result.recommended_action,
-                log_snapshot, prompt_version, model,
+                container_cfg.name, "action", result.status, result.confidence,
+                result.root_cause_category, action.message, action.action_taken,
+                action.log_snapshot[:2000] if action.log_snapshot else "", model,
             ),
         )
         conn.commit()
 
-        # Publish to SSE
-        publish("evaluation", {
-            "container": container_cfg.name,
-            "status": result.status,
-            "confidence": result.confidence,
-            "root_cause_category": result.root_cause_category,
-            "summary": result.summary,
-            "recommended_action": result.recommended_action,
-        })
-
-        # 6. Execute action
-        action = execute_action(
-            result=result, container=container, conn=conn,
-            cooldown_cfg=cfg.cooldowns, dry_run=cfg.monitoring.dry_run,
-            log_snapshot=log_snapshot,
+    # 9. Capture baseline
+    if result.status == "healthy" and result.confidence >= 80 and baseline is None:
+        baseline_logs = get_logs(container, tail=30)
+        conn.execute(
+            "INSERT OR REPLACE INTO baselines (container, healthy_log_sample) VALUES (?, ?)",
+            (container_cfg.name, baseline_logs[:2000]),
         )
-
-        if action.action_taken != "none":
-            logger.info("[%s] Action: %s -- %s", container_cfg.name, action.action_taken, action.message)
-
-            publish("action", {
-                "container": container_cfg.name,
-                "action": action.action_taken,
-                "success": action.success,
-                "message": action.message,
-            })
-
-        # 7. Send alerts
-        if action.action_taken == "restart":
-            alert_restart(container_cfg.name, result, action)
-        elif action.action_taken == "dry_run_restart":
-            alert_dry_run(container_cfg.name, result)
-        elif action.action_taken == "alert_only":
-            alert_escalation(container_cfg.name,
-                             conn.execute("SELECT consecutive_restarts FROM cooldowns WHERE container = ?",
-                                          (container_cfg.name,)).fetchone()[0])
-        elif action.action_taken == "cooldown_skip":
-            alert_cooldown_skip(container_cfg.name, 0)
-
-        # 8. Store action event
-        if action.action_taken != "none":
-            conn.execute(
-                """INSERT INTO events
-                   (container, event_type, ai_status, confidence, root_cause_category,
-                    summary, action_taken, log_snapshot, model_used)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    container_cfg.name, "action", result.status, result.confidence,
-                    result.root_cause_category, action.message, action.action_taken,
-                    action.log_snapshot[:2000] if action.log_snapshot else "", model,
-                ),
-            )
-            conn.commit()
-
-        # 9. Capture baseline
-        if result.status == "healthy" and result.confidence >= 80 and baseline is None:
-            baseline_logs = get_logs(container, tail=30)
-            conn.execute(
-                "INSERT OR REPLACE INTO baselines (container, healthy_log_sample) VALUES (?, ?)",
-                (container_cfg.name, baseline_logs[:2000]),
-            )
-            conn.commit()
-            logger.info("[%s] Baseline captured", container_cfg.name)
-
-    conn.close()
+        conn.commit()
+        logger.info("[%s] Baseline captured", container_cfg.name)
 
 
 async def run(cfg: DockmonConfig) -> None:

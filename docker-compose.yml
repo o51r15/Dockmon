@@ -4,7 +4,7 @@ services:
     container_name: dockmon
     restart: unless-stopped
     ports:
-      - "8555:8555"
+      - "8556:8556"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./config.yaml:/app/config/config.yaml:ro

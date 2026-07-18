@@ -11,22 +11,22 @@ monitoring:
   db_path: "/home/o51r15/scripts/dockmon/data/dockmon.db"
 
 containers:
-  - name: "bitmagnet"
-    enabled: true
-    model_override: null
-    ignore_patterns:
-      - "^\\d{4}/\\d{2}/\\d{2}.*DEBUG"
-    compose_group: null
-  - name: "bitmagnet-postgres"
-    enabled: true
-    ignore_patterns:
-      - "checkpoint starting"
-      - "checkpoint complete"
-    compose_group: null
   - name: "bentopdf"
     enabled: true
     ignore_patterns: []
     compose_group: null
+  # - name: "bitmagnet"
+  #   enabled: true
+  #   model_override: null
+  #   ignore_patterns:
+  #     - "^\\d{4}/\\d{2}/\\d{2}.*DEBUG"
+  #   compose_group: null
+  # - name: "bitmagnet-postgres"
+  #   enabled: true
+  #   ignore_patterns:
+  #     - "checkpoint starting"
+  #     - "checkpoint complete"
+  #   compose_group: null
 
 cooldowns:
   initial_minutes: 5

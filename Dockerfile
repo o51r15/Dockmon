@@ -8,6 +8,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY dockmon/ dockmon/
 COPY frontend/ frontend/
 
-EXPOSE 8555
+EXPOSE 8556
 
 CMD ["python", "-m", "dockmon.main"]
