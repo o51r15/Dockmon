@@ -132,6 +132,8 @@ def execute_action(
     cooldown_cfg: CooldownConfig,
     dry_run: bool,
     log_snapshot: str = "",
+    compose_group: str | None = None,
+    group_container_names: list[str] | None = None,
 ) -> ActionResult:
     """
     Decide and execute an action based on the AI evaluation.
@@ -183,18 +185,25 @@ def execute_action(
 
     # Dry-run mode
     if dry_run:
-        logger.info("[%s] DRY RUN: would restart (confidence=%d, reason=%s)",
-                     name, result.confidence, result.root_cause_category)
+        group_msg = ""
+        if compose_group and group_container_names:
+            group_msg = f" [compose group '{compose_group}': would restart {', '.join(group_container_names)}]"
+        logger.info("[%s] DRY RUN: would restart (confidence=%d, reason=%s)%s",
+                     name, result.confidence, result.root_cause_category, group_msg)
         return ActionResult(
             container_name=name,
             action_taken="dry_run_restart",
             success=True,
-            message=f"DRY RUN — would restart. Reason: {result.summary}",
+            message=f"DRY RUN — would restart. Reason: {result.summary}{group_msg}",
             log_snapshot=log_snapshot,
         )
 
-    # Execute restart
-    logger.info("[%s] Restarting container...", name)
+    # Execute restart — compose group or single container
+    if compose_group and group_container_names and len(group_container_names) > 1:
+        logger.info("[%s] Restarting compose group '%s': %s",
+                     name, compose_group, ", ".join(group_container_names))
+    else:
+        logger.info("[%s] Restarting container...", name)
 
     # Store pre-restart snapshot
     conn.execute(
@@ -207,31 +216,49 @@ def execute_action(
     conn.commit()
 
     try:
-        container.restart(timeout=30)
+        # Determine which containers to restart
+        containers_to_restart = [container]
+        if compose_group and group_container_names and len(group_container_names) > 1:
+            client = docker.from_env()
+            all_running = {c.name: c for c in client.containers.list()}
+            containers_to_restart = [
+                all_running[n] for n in group_container_names if n in all_running
+            ]
+
+        for c in containers_to_restart:
+            logger.info("[%s] Restarting %s...", name, c.name)
+            c.restart(timeout=30)
 
         # Verify: check at 10s and 30s
         time.sleep(10)
-        container.reload()
-        if container.status != "running":
-            time.sleep(20)
-            container.reload()
+        all_ok = True
+        for c in containers_to_restart:
+            c.reload()
+            if c.status != "running":
+                time.sleep(20)
+                c.reload()
+            if c.status != "running":
+                all_ok = False
+                logger.warning("[%s] %s status is '%s' after restart", name, c.name, c.status)
 
-        if container.status == "running":
-            _update_cooldown(conn, name, cooldown_cfg, state)
+        _update_cooldown(conn, name, cooldown_cfg, state)
+        restarted_names = [c.name for c in containers_to_restart]
+        group_note = f" (compose group: {', '.join(restarted_names)})" if len(restarted_names) > 1 else ""
+
+        if all_ok:
             return ActionResult(
                 container_name=name,
                 action_taken="restart",
                 success=True,
-                message=f"Restarted successfully. Status: {container.status}",
+                message=f"Restarted successfully{group_note}.",
                 log_snapshot=log_snapshot,
             )
         else:
-            _update_cooldown(conn, name, cooldown_cfg, state)
             return ActionResult(
                 container_name=name,
                 action_taken="restart",
                 success=False,
-                message=f"Restart issued but container status is '{container.status}' after 30s.",
+                message=f"Restart issued but not all containers healthy after 30s{group_note}.",
                 log_snapshot=log_snapshot,
             )
 

@@ -218,10 +218,18 @@ async def _process_container(container_cfg, container, cfg: DockmonConfig, conn)
     })
 
     # 6. Execute action
+    # Resolve compose group members
+    group = container_cfg.compose_group
+    group_names = None
+    if group:
+        group_names = [c.name for c in cfg.containers if c.enabled and c.compose_group == group]
+
     action = execute_action(
         result=result, container=container, conn=conn,
         cooldown_cfg=cfg.cooldowns, dry_run=cfg.monitoring.dry_run,
         log_snapshot=log_snapshot,
+        compose_group=group,
+        group_container_names=group_names,
     )
 
     if action.action_taken != "none":
