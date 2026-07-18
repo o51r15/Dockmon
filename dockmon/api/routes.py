@@ -277,6 +277,21 @@ async def get_restart_history(container: str, limit: int = Query(20, ge=1, le=10
     ]
 
 
+@router.post("/digest")
+async def trigger_digest():
+    """Trigger an on-demand daily digest."""
+    cfg = _get_cfg()
+    conn = init_db(cfg.monitoring.db_path)
+    try:
+        from dockmon.digest import send_digest
+        digest = await send_digest(cfg, conn)
+        return digest
+    except Exception as e:
+        raise HTTPException(500, f"Digest generation failed: {e}")
+    finally:
+        conn.close()
+
+
 @router.get("/config")
 async def get_config():
     """Current running configuration (sanitized)."""

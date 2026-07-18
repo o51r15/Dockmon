@@ -6,6 +6,7 @@ import asyncio
 import logging
 import signal
 import sys
+from datetime import timedelta
 from pathlib import Path
 
 import uvicorn
@@ -24,6 +25,7 @@ from dockmon.alerts import (
 )
 from dockmon.api.routes import router as api_router, set_config
 from dockmon.api.events import router as sse_router, publish
+from dockmon.digest import send_digest
 
 logging.basicConfig(
     level=logging.INFO,
@@ -273,8 +275,49 @@ async def run(cfg: DockmonConfig) -> None:
         logger.info("Monitor loop stopped.")
         server.should_exit = True
 
+    async def run_digest_scheduler():
+        """Run the daily digest on a cron-like schedule."""
+        if not cfg.digest.enabled:
+            logger.info("Digest disabled, scheduler not started.")
+            return
+
+        # Parse cron hour/minute from schedule_cron (e.g. "0 7 * * *")
+        parts = cfg.digest.schedule_cron.split()
+        cron_minute = int(parts[0]) if len(parts) > 0 else 0
+        cron_hour = int(parts[1]) if len(parts) > 1 else 7
+
+        logger.info("Digest scheduler: will run daily at %02d:%02d UTC", cron_hour, cron_minute)
+
+        while not _shutdown.is_set():
+            from datetime import datetime as dt, timezone as tz
+            now = dt.now(tz.utc)
+            # Calculate next run
+            target = now.replace(hour=cron_hour, minute=cron_minute, second=0, microsecond=0)
+            if target <= now:
+                target = target + timedelta(days=1)
+            wait_secs = (target - now).total_seconds()
+            logger.info("Next digest in %.0f seconds (%s UTC)", wait_secs, target.strftime("%Y-%m-%d %H:%M"))
+
+            try:
+                await asyncio.wait_for(_shutdown.wait(), timeout=wait_secs)
+                break  # shutdown requested
+            except asyncio.TimeoutError:
+                pass  # time to run digest
+
+            try:
+                conn = init_db(cfg.monitoring.db_path)
+                digest = await send_digest(cfg, conn)
+                conn.close()
+                publish("digest", {"overall_health": digest.get("overall_health", "unknown"),
+                                   "headline": digest.get("headline", "")})
+                logger.info("Daily digest completed.")
+            except Exception:
+                logger.exception("Digest failed")
+
+        logger.info("Digest scheduler stopped.")
+
     logger.info("Web UI: http://0.0.0.0:8556")
-    await asyncio.gather(run_server(), run_monitor())
+    await asyncio.gather(run_server(), run_monitor(), run_digest_scheduler())
     logger.info("Dockmon stopped.")
 
 
