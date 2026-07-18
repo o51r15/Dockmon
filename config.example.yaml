@@ -12,20 +12,15 @@ monitoring:
   retention_days: 90
 
 containers:
-  - name: "bentopdf"
-    enabled: true
-    ignore_patterns: []
-    compose_group: null
   - name: "gluetun"
     enabled: true
     ignore_patterns:
-      - "^\\d{4}/\\d{2}/\\d{2}.*INFO"
+      - '^\d{4}/\d{2}/\d{2}.*INFO'
     compose_group: null
   - name: "bitmagnet"
     enabled: true
-    model_override: null
     ignore_patterns:
-      - "^\\d{4}/\\d{2}/\\d{2}.*DEBUG"
+      - '^\d{4}/\d{2}/\d{2}.*DEBUG'
     compose_group: "bitmagnet"
   - name: "bitmagnet-postgres"
     enabled: true
@@ -33,6 +28,28 @@ containers:
       - "checkpoint starting"
       - "checkpoint complete"
     compose_group: "bitmagnet"
+  - name: "qbittorrent"
+    enabled: true
+    ignore_patterns: []
+    compose_group: null
+  - name: "kometa"
+    enabled: true
+    ignore_patterns: []
+    compose_group: null
+  - name: "audiobookshelf"
+    enabled: true
+    ignore_patterns: []
+    compose_group: null
+  - name: "pinchfork"
+    enabled: true
+    ignore_patterns: []
+    compose_group: "pinchfork"
+  - name: "pinchfork-db"
+    enabled: true
+    ignore_patterns:
+      - "checkpoint starting"
+      - "checkpoint complete"
+    compose_group: "pinchfork"
 
 cooldowns:
   initial_minutes: 5

@@ -157,6 +157,7 @@ async def evaluate(
                     "prompt": user_prompt,
                     "format": "json",
                     "stream": False,
+                    "think": False,
                     "options": {
                         "temperature": 0.1,
                         "num_predict": 500,
@@ -194,6 +195,7 @@ async def evaluate(
                         "prompt": user_prompt + "\n\nIMPORTANT: Your previous response was not valid JSON. Respond with ONLY valid JSON.",
                         "format": "json",
                         "stream": False,
+                        "think": False,
                         "options": {"temperature": 0.0, "num_predict": 300},
                     },
                 )
