@@ -16,7 +16,7 @@ from dockmon.config import OllamaConfig
 logger = logging.getLogger(__name__)
 
 PROMPT_DIR = Path(__file__).parent / "prompts"
-DEFAULT_PROMPT_VERSION = "v2_evaluate"
+DEFAULT_PROMPT_VERSION = "v3_evaluate"
 
 
 class EvaluationResult(BaseModel):
