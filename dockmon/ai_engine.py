@@ -24,12 +24,12 @@ class EvaluationResult(BaseModel):
     status: str  # "healthy", "degraded", "unhealthy", or "critical"
     health_score: int  # 0-100 numeric health score
     confidence: int
-    root_cause_category: str
-    error_origin: str  # "internal", "external", or "none"
+    root_cause_category: str = "none"
+    error_origin: str = "none"
     summary: str
-    restart_would_help: bool
-    restart_reasoning: str
-    recommended_action: str
+    restart_would_help: bool = False
+    restart_reasoning: str = ""
+    recommended_action: str = "none"
 
     @field_validator("status")
     @classmethod
