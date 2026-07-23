@@ -59,6 +59,13 @@ CREATE TABLE IF NOT EXISTS alert_urls (
     url TEXT NOT NULL UNIQUE,
     added_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+CREATE TABLE IF NOT EXISTS container_prompts (
+    container TEXT PRIMARY KEY,
+    context_prompt TEXT,
+    examples TEXT,
+    known_patterns TEXT,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 """
 
 
@@ -112,6 +119,53 @@ if __name__ == "__main__":
     os.unlink(test_path)
     print("Test passed, cleaned up.")
 
+
+
+def get_container_prompt(conn, container: str) -> dict | None:
+    """Fetch prompt overrides for a container from DB. Returns None if not set."""
+    import json
+    row = conn.execute(
+        "SELECT context_prompt, examples, known_patterns, updated_at "
+        "FROM container_prompts WHERE container = ?",
+        (container,),
+    ).fetchone()
+    if not row:
+        return None
+    return {
+        "container": container,
+        "context_prompt": row[0],
+        "examples": json.loads(row[1]) if row[1] else [],
+        "known_patterns": json.loads(row[2]) if row[2] else [],
+        "updated_at": row[3],
+    }
+
+
+def save_container_prompt(conn, container: str, context_prompt: str | None,
+                          examples: list | None, known_patterns: list | None) -> None:
+    """Save or update prompt overrides for a container."""
+    import json
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).isoformat()
+    examples_json = json.dumps(examples) if examples else None
+    patterns_json = json.dumps(known_patterns) if known_patterns else None
+    conn.execute(
+        """INSERT INTO container_prompts (container, context_prompt, examples, known_patterns, updated_at)
+           VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT(container) DO UPDATE SET
+             context_prompt = excluded.context_prompt,
+             examples = excluded.examples,
+             known_patterns = excluded.known_patterns,
+             updated_at = excluded.updated_at""",
+        (container, context_prompt, examples_json, patterns_json, now),
+    )
+    conn.commit()
+
+
+def delete_container_prompt(conn, container: str) -> bool:
+    """Delete prompt overrides for a container. Returns True if a row was deleted."""
+    cursor = conn.execute("DELETE FROM container_prompts WHERE container = ?", (container,))
+    conn.commit()
+    return cursor.rowcount > 0
 
 def prune_old_events(conn, retention_days=90):
     """Delete events older than retention_days. Returns rows deleted."""

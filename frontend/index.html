@@ -89,7 +89,7 @@ td { padding:0.5rem; border-bottom:1px solid var(--border); }
 <body x-data="dashboard()" x-init="init()">
 
 <div class="header">
-  <h1><span>Dock</span>mon</h1>
+  <h1>dock<span>Llama</span></h1>
   <div class="header-right">
     <template x-if="config">
       <span class="badge" :class="config.monitoring.dry_run ? 'badge-dry' : 'badge-live'"
@@ -103,6 +103,7 @@ td { padding:0.5rem; border-bottom:1px solid var(--border); }
   <a href="/" class="active">Dashboard</a>
   <a href="/explorer.html">Log Explorer</a>
   <a href="/digest.html">Digest</a>
+  <a href="/prompts.html">Prompts</a>
   <a href="/settings.html">Settings</a>
 </nav>
 

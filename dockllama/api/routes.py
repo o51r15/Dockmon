@@ -10,7 +10,7 @@ from fastapi import APIRouter, Query, HTTPException
 from pydantic import BaseModel
 
 from dockllama.config import DockLlamaConfig
-from dockllama.db import init_db
+from dockllama.db import init_db, get_container_prompt, save_container_prompt, delete_container_prompt
 from dockllama.docker_client import get_client, get_logs, list_containers
 from dockllama.log_pipeline import process_logs
 from dockllama.ai_engine import evaluate, EvaluationContext
@@ -40,6 +40,12 @@ class ContainerStatus(BaseModel):
     image: str
     status: str
     last_evaluation: Optional[dict] = None
+
+
+class PromptConfig(BaseModel):
+    context_prompt: Optional[str] = None
+    examples: Optional[list[dict]] = None
+    known_patterns: Optional[list[dict]] = None
 
 
 class EvalRequest(BaseModel):
@@ -382,6 +388,147 @@ async def health_check():
 
     all_ok = all(checks.values())
     return {"healthy": all_ok, "checks": checks}
+
+
+
+# --- Container Prompt Management ---
+
+@router.get("/containers/{name}/prompt")
+async def get_prompt(name: str):
+    """Get prompt configuration for a container (DB override + config.yaml fallback)."""
+    cfg = _get_cfg()
+    conn = init_db(cfg.monitoring.db_path)
+    try:
+        # Check DB first
+        db_prompt = get_container_prompt(conn, name)
+
+        # Get config.yaml values as fallback
+        config_vals = None
+        for c in cfg.containers:
+            if c.name == name:
+                config_vals = {
+                    "context_prompt": c.context_prompt,
+                    "examples": c.examples,
+                    "known_patterns": c.known_patterns,
+                }
+                break
+
+        if not config_vals and not db_prompt:
+            raise HTTPException(404, f"Container '{name}' not found in config")
+
+        # Merge: DB wins over config
+        effective = {
+            "container": name,
+            "context_prompt": None,
+            "examples": [],
+            "known_patterns": [],
+            "source": "config",
+            "updated_at": None,
+        }
+        if config_vals:
+            effective["context_prompt"] = config_vals["context_prompt"]
+            effective["examples"] = config_vals["examples"]
+            effective["known_patterns"] = config_vals["known_patterns"]
+        if db_prompt:
+            effective["context_prompt"] = db_prompt["context_prompt"]
+            effective["examples"] = db_prompt["examples"]
+            effective["known_patterns"] = db_prompt["known_patterns"]
+            effective["source"] = "database"
+            effective["updated_at"] = db_prompt["updated_at"]
+
+        # Also return raw config values for reference
+        effective["config_fallback"] = config_vals
+        return effective
+    finally:
+        conn.close()
+
+
+@router.put("/containers/{name}/prompt")
+async def update_prompt(name: str, prompt: PromptConfig):
+    """Save prompt overrides to database (overrides config.yaml)."""
+    cfg = _get_cfg()
+    # Verify container exists in config
+    if not any(c.name == name for c in cfg.containers):
+        raise HTTPException(404, f"Container '{name}' not found in config")
+
+    conn = init_db(cfg.monitoring.db_path)
+    try:
+        save_container_prompt(
+            conn, name,
+            context_prompt=prompt.context_prompt,
+            examples=prompt.examples,
+            known_patterns=prompt.known_patterns,
+        )
+        return {"status": "ok", "container": name, "source": "database"}
+    finally:
+        conn.close()
+
+
+@router.delete("/containers/{name}/prompt")
+async def delete_prompt(name: str):
+    """Delete DB prompt overrides, reverting to config.yaml values."""
+    cfg = _get_cfg()
+    conn = init_db(cfg.monitoring.db_path)
+    try:
+        deleted = delete_container_prompt(conn, name)
+        if not deleted:
+            raise HTTPException(404, f"No database overrides for '{name}'")
+        return {"status": "ok", "container": name, "reverted_to": "config"}
+    finally:
+        conn.close()
+
+
+@router.post("/containers/{name}/test-prompt")
+async def test_prompt(name: str, prompt: PromptConfig):
+    """Test a prompt configuration against the container's current logs without saving."""
+    cfg = _get_cfg()
+    client = get_client()
+    matches = [c for c in client.containers.list() if c.name == name]
+    if not matches:
+        raise HTTPException(404, f"Container '{name}' not running")
+
+    container = matches[0]
+    raw = get_logs(container, tail=cfg.monitoring.log_lines_per_check)
+
+    # Find container config
+    container_cfg = None
+    for c in cfg.containers:
+        if c.name == name:
+            container_cfg = c
+            break
+    if not container_cfg:
+        raise HTTPException(404, f"Container '{name}' not in config")
+
+    ignore_patterns = container_cfg.ignore_patterns
+    batch = process_logs(name, raw, ignore_patterns=ignore_patterns, max_lines=cfg.monitoring.log_lines_per_check)
+
+    model = container_cfg.model_override or cfg.ollama.default_model
+
+    # Build context with the TEST prompt values
+    ctx = EvaluationContext(
+        container_name=name,
+        filtered_lines=batch.filtered_lines,
+        model=model,
+        context_prompt=prompt.context_prompt,
+        examples=prompt.examples or [],
+    )
+
+    start = time.time()
+    result, prompt_version = await evaluate(ctx, cfg.ollama)
+    elapsed = round(time.time() - start, 2)
+
+    return {
+        "container": name,
+        "status": result.status,
+        "health_score": result.health_score,
+        "confidence": result.confidence,
+        "summary": result.summary,
+        "model": model,
+        "eval_time_seconds": elapsed,
+        "lines_evaluated": len(batch.filtered_lines),
+        "test_mode": True,
+    }
+
 
 # --- Alert management ---
 

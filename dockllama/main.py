@@ -14,7 +14,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from dockllama.config import load_config, DockLlamaConfig
-from dockllama.db import init_db, verify_tables, prune_old_events, vacuum_db
+from dockllama.db import init_db, get_container_prompt, verify_tables, prune_old_events, vacuum_db
 from dockllama.docker_client import get_client, get_logs, list_containers, get_container_stats
 from dockllama.log_pipeline import process_logs
 from dockllama.log_analyzer import analyze_logs
@@ -244,14 +244,27 @@ async def _process_container(container_cfg, container, cfg: DockLlamaConfig, con
     if row:
         baseline = row[0]
 
+    # Check DB for prompt overrides (DB wins over config.yaml)
+    effective_context_prompt = container_cfg.context_prompt
+    effective_examples = container_cfg.examples
+    effective_known_patterns = container_cfg.known_patterns
+    db_prompt = get_container_prompt(conn, container_cfg.name)
+    if db_prompt:
+        if db_prompt.get("context_prompt") is not None:
+            effective_context_prompt = db_prompt["context_prompt"]
+        if db_prompt.get("examples"):
+            effective_examples = db_prompt["examples"]
+        if db_prompt.get("known_patterns"):
+            effective_known_patterns = db_prompt["known_patterns"]
+
     ctx = EvaluationContext(
         container_name=container_cfg.name,
         filtered_lines=batch.filtered_lines,
         model=model,
         structured_summary=summary.to_prompt(),
         baseline_sample=baseline,
-        context_prompt=container_cfg.context_prompt,
-        examples=container_cfg.examples,
+        context_prompt=effective_context_prompt,
+        examples=effective_examples,
     )
 
     result, prompt_version = await evaluate(ctx, cfg.ollama)
