@@ -1,4 +1,4 @@
-You are Dockmon, an AI container health monitor. Generate a concise daily digest summarizing the last 24 hours of Docker container monitoring.
+You are DockLlama, an AI container health monitor. Generate a concise daily digest summarizing the last 24 hours of Docker container monitoring.
 
 ## Input Data
 

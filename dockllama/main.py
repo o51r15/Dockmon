@@ -1,4 +1,4 @@
-"""Dockmon entry point — runs startup checks, monitor loop, and web server."""
+"""DockLlama entry point — runs startup checks, monitor loop, and web server."""
 
 from __future__ import annotations
 
@@ -13,27 +13,27 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
-from dockmon.config import load_config, DockmonConfig
-from dockmon.db import init_db, verify_tables, prune_old_events, vacuum_db
-from dockmon.docker_client import get_client, get_logs, list_containers
-from dockmon.log_pipeline import process_logs
-from dockmon.log_analyzer import analyze_logs
-from dockmon.ai_engine import evaluate, EvaluationContext, EvaluationResult
-from dockmon.actions import execute_action
-from dockmon.alerts import (
+from dockllama.config import load_config, DockLlamaConfig
+from dockllama.db import init_db, verify_tables, prune_old_events, vacuum_db
+from dockllama.docker_client import get_client, get_logs, list_containers
+from dockllama.log_pipeline import process_logs
+from dockllama.log_analyzer import analyze_logs
+from dockllama.ai_engine import evaluate, EvaluationContext, EvaluationResult
+from dockllama.actions import execute_action
+from dockllama.alerts import (
     init_alerts, alert_restart, alert_dry_run, alert_escalation,
     alert_cooldown_skip, alert_error,
 )
-from dockmon.api.routes import router as api_router, set_config
-from dockmon.api.events import router as sse_router, publish
-from dockmon.digest import send_digest
+from dockllama.api.routes import router as api_router, set_config
+from dockllama.api.events import router as sse_router, publish
+from dockllama.digest import send_digest
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
-logger = logging.getLogger("dockmon")
+logger = logging.getLogger("dockllama")
 
 # Graceful shutdown
 _shutdown = asyncio.Event()
@@ -44,9 +44,9 @@ def _handle_signal(sig, frame):
     _shutdown.set()
 
 
-def create_app(cfg: DockmonConfig) -> FastAPI:
+def create_app(cfg: DockLlamaConfig) -> FastAPI:
     """Create the FastAPI application."""
-    app = FastAPI(title="Dockmon", version="0.1.0")
+    app = FastAPI(title="DockLlama", version="0.1.0")
     set_config(cfg)
     app.include_router(api_router)
     app.include_router(sse_router)
@@ -59,10 +59,10 @@ def create_app(cfg: DockmonConfig) -> FastAPI:
     return app
 
 
-def startup_check(cfg: DockmonConfig) -> None:
+def startup_check(cfg: DockLlamaConfig) -> None:
     """Run all startup checks."""
     print("=" * 50)
-    print("  Dockmon -- AI Container Monitor")
+    print("  DockLlama -- AI Container Monitor")
     print("=" * 50)
     print()
 
@@ -79,7 +79,7 @@ def startup_check(cfg: DockmonConfig) -> None:
         vacuum_db(conn)
         logger.info("DB maintenance: pruned %d old events, vacuumed", pruned)
     # Load persisted alert URLs from DB, merge with config
-    from dockmon.alerts import load_alert_urls
+    from dockllama.alerts import load_alert_urls
     db_urls = load_alert_urls(conn)
     config_urls = cfg.alerts.urls or []
     # Merge: DB URLs take priority, config URLs added if not already present
@@ -122,7 +122,7 @@ def startup_check(cfg: DockmonConfig) -> None:
                 cfg.cooldowns.max_cooldown_minutes, cfg.cooldowns.max_restarts_per_hour)
 
 
-async def monitor_cycle(cfg: DockmonConfig) -> None:
+async def monitor_cycle(cfg: DockLlamaConfig) -> None:
     """Run one full monitoring cycle across all enabled containers."""
     client = get_client()
     enabled = [c for c in cfg.containers if c.enabled]
@@ -144,7 +144,7 @@ async def monitor_cycle(cfg: DockmonConfig) -> None:
     conn.close()
 
 
-async def _process_container(container_cfg, container, cfg: DockmonConfig, conn) -> None:
+async def _process_container(container_cfg, container, cfg: DockLlamaConfig, conn) -> None:
     """Process a single container: logs -> analyze -> evaluate -> act -> alert."""
     # 1. Grab logs
     raw_logs = get_logs(container, tail=cfg.monitoring.log_lines_per_check)
@@ -352,7 +352,7 @@ async def _process_container(container_cfg, container, cfg: DockmonConfig, conn)
         logger.info("[%s] Baseline captured", container_cfg.name)
 
 
-async def run(cfg: DockmonConfig) -> None:
+async def run(cfg: DockLlamaConfig) -> None:
     """Run the monitor loop and web server concurrently."""
     signal.signal(signal.SIGTERM, _handle_signal)
     signal.signal(signal.SIGINT, _handle_signal)
@@ -430,7 +430,7 @@ async def run(cfg: DockmonConfig) -> None:
 
     logger.info("Web UI: http://0.0.0.0:8556")
     await asyncio.gather(run_server(), run_monitor(), run_digest_scheduler())
-    logger.info("Dockmon stopped.")
+    logger.info("DockLlama stopped.")
 
 
 def main():

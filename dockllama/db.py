@@ -1,11 +1,11 @@
-"""SQLite database layer for Dockmon."""
+"""SQLite database layer for DockLlama."""
 
 from __future__ import annotations
 
 import sqlite3
 from pathlib import Path
 
-DEFAULT_DB_PATH = "/app/data/dockmon.db"
+DEFAULT_DB_PATH = "/app/data/dockllama.db"
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS events (
@@ -97,7 +97,7 @@ if __name__ == "__main__":
     import tempfile
     import os
 
-    test_path = os.path.join(tempfile.gettempdir(), "dockmon_test.db")
+    test_path = os.path.join(tempfile.gettempdir(), "dockllama_test.db")
     print(f"Testing DB at {test_path}")
 
     conn = init_db(test_path)

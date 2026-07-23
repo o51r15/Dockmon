@@ -17,7 +17,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
-from dockmon.log_pipeline import strip_ansi, strip_docker_timestamp, detect_level
+from dockllama.log_pipeline import strip_ansi, strip_docker_timestamp, detect_level
 
 # Timestamp patterns for various log formats
 TS_PATTERNS = [

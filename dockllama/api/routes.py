@@ -1,4 +1,4 @@
-"""FastAPI routes for the Dockmon web interface."""
+"""FastAPI routes for the DockLlama web interface."""
 
 from __future__ import annotations
 
@@ -9,24 +9,24 @@ from typing import Optional
 from fastapi import APIRouter, Query, HTTPException
 from pydantic import BaseModel
 
-from dockmon.config import DockmonConfig
-from dockmon.db import init_db
-from dockmon.docker_client import get_client, get_logs, list_containers
-from dockmon.log_pipeline import process_logs
-from dockmon.ai_engine import evaluate, EvaluationContext
+from dockllama.config import DockLlamaConfig
+from dockllama.db import init_db
+from dockllama.docker_client import get_client, get_logs, list_containers
+from dockllama.log_pipeline import process_logs
+from dockllama.ai_engine import evaluate, EvaluationContext
 
 router = APIRouter(prefix="/api")
 
 # Set by main.py at startup
-_cfg: DockmonConfig | None = None
+_cfg: DockLlamaConfig | None = None
 
 
-def set_config(cfg: DockmonConfig) -> None:
+def set_config(cfg: DockLlamaConfig) -> None:
     global _cfg
     _cfg = cfg
 
 
-def _get_cfg() -> DockmonConfig:
+def _get_cfg() -> DockLlamaConfig:
     if _cfg is None:
         raise HTTPException(500, "Config not initialized")
     return _cfg
@@ -285,7 +285,7 @@ async def trigger_digest():
     cfg = _get_cfg()
     conn = init_db(cfg.monitoring.db_path)
     try:
-        from dockmon.digest import send_digest
+        from dockllama.digest import send_digest
         digest = await send_digest(cfg, conn)
         return digest
     except Exception as e:
@@ -301,7 +301,7 @@ async def get_trends(container: Optional[str] = None):
     cfg = _get_cfg()
     conn = init_db(cfg.monitoring.db_path)
     try:
-        from dockmon.trends import get_fleet_trends, get_container_trends
+        from dockllama.trends import get_fleet_trends, get_container_trends
         if container:
             result = get_container_trends(conn, container)
         else:
@@ -395,7 +395,7 @@ async def get_alerts():
     cfg = _get_cfg()
     conn = init_db(cfg.monitoring.db_path)
     try:
-        from dockmon.alerts import load_alert_urls
+        from dockllama.alerts import load_alert_urls
         urls = load_alert_urls(conn)
         return {"urls": urls}
     finally:
@@ -407,7 +407,7 @@ async def update_alerts(alert_cfg: AlertConfig):
     """Update alert URLs (persisted to database)."""
     cfg = _get_cfg()
     cfg.alerts.urls = alert_cfg.urls
-    from dockmon.alerts import init_alerts, save_alert_urls
+    from dockllama.alerts import init_alerts, save_alert_urls
     init_alerts(alert_cfg.urls)
     conn = init_db(cfg.monitoring.db_path)
     try:
@@ -423,11 +423,11 @@ async def test_alerts():
     cfg = _get_cfg()
     if not cfg.alerts.urls:
         raise HTTPException(400, "No alert URLs configured")
-    from dockmon.alerts import _send
+    from dockllama.alerts import _send
     import apprise
     success = _send(
-        "Dockmon Test Notification",
-        "This is a test notification from Dockmon. If you see this, notifications are working!",
+        "DockLlama Test Notification",
+        "This is a test notification from DockLlama. If you see this, notifications are working!",
         apprise.NotifyType.INFO,
     )
     return {"success": success, "targets": len(cfg.alerts.urls)}

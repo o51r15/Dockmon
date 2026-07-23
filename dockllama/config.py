@@ -1,4 +1,4 @@
-"""Configuration loader and validation for Dockmon."""
+"""Configuration loader and validation for DockLlama."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ class MonitoringConfig(BaseModel):
     poll_interval_seconds: int = 60
     log_lines_per_check: int = 200
     dry_run: bool = True
-    db_path: str = "/app/data/dockmon.db"
+    db_path: str = "/app/data/dockllama.db"
     retention_days: int = 90
 
 
@@ -49,7 +49,7 @@ class DigestConfig(BaseModel):
     schedule_cron: str = "0 7 * * *"
 
 
-class DockmonConfig(BaseModel):
+class DockLlamaConfig(BaseModel):
     ollama: OllamaConfig = OllamaConfig()
     monitoring: MonitoringConfig = MonitoringConfig()
     containers: list[ContainerConfig] = []
@@ -65,7 +65,7 @@ class DockmonConfig(BaseModel):
         return v
 
 
-def load_config(path: str | Path = "/app/config/config.yaml") -> DockmonConfig:
+def load_config(path: str | Path = "/app/config/config.yaml") -> DockLlamaConfig:
     """Load and validate configuration from a YAML file."""
     p = Path(path)
     if not p.exists():
@@ -76,7 +76,7 @@ def load_config(path: str | Path = "/app/config/config.yaml") -> DockmonConfig:
     with open(p) as f:
         raw = yaml.safe_load(f) or {}
 
-    return DockmonConfig(**raw)
+    return DockLlamaConfig(**raw)
 
 
 if __name__ == "__main__":

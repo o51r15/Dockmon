@@ -1,11 +1,11 @@
 # DockLlama — Developer Log & Handoff
 
 **Last updated:** July 23, 2026 (end of Session 3)
-**Repository:** https://github.com/o51r15/DockLlama (renamed from Dockmon)
+**Repository:** https://github.com/o51r15/DockLlama (renamed from DockLlama)
 **Status:** Running in dry-run mode as Docker container, monitoring 15 production containers
 **Latest commit:** `f9daf92` — Update handoff docs
 
-## FIRST TASK: Complete Rename from Dockmon to DockLlama
+## FIRST TASK: Complete Rename from DockLlama to DockLlama
 
 The GitHub repo has been renamed by the user. The following still need updating in the codebase:
 
@@ -92,7 +92,7 @@ docker run -d --name dockmon --restart unless-stopped \
   -p 8556:8556 \
   -v /var/run/docker.sock:/var/run/docker.sock:ro \
   -v /home/o51r15/scripts/dockmon/config.yaml:/app/config/config.yaml:ro \
-  -v dockmon-data:/app/data \
+  -v dockllama-data:/app/data \
   -e TZ=America/New_York \
   ghcr.io/o51r15/dockmon:dev
 
@@ -100,7 +100,7 @@ docker run -d --name dockmon --restart unless-stopped \
 docker logs dockmon --tail 20
 
 # Alternative: run from host (for debugging only)
-cd ~/scripts/dockmon && nohup python3 -m dockmon config.yaml > /tmp/dockmon.log 2>&1 &
+cd ~/scripts/dockmon && nohup python3 -m dockllama config.yaml > /tmp/dockmon.log 2>&1 &
 fuser -k 8556/tcp  # to stop host mode
 ```
 
@@ -203,7 +203,7 @@ main.py: _process_container()
 
 **Compose groups** (restart together): bitmagnet (bitmagnet + bitmagnet-postgres), pinchfork (pinchfork + pinchfork-db), karakeep (karakeep + karakeep_chrome + karakeep_meilisearch)
 
-**Docker volume:** `dockmon-data:/app/data` persists the SQLite DB across container restarts.
+**Docker volume:** `dockllama-data:/app/data` persists the SQLite DB across container restarts.
 
 ---
 
@@ -329,4 +329,4 @@ Key commits this session: `d3b4c52` (auto-healthy, digest fix, settings/digest p
 
 1. **karakeep_chrome** occasionally shows "degraded" — Chrome versions may produce new noise lines. Phase 8.3 (metadata tagging) will address this more robustly than adding more ignore patterns.
 2. **Docker image tag mismatch** — docker-compose.yml references `:latest` but active container runs `:dev`. Next GitHub Release will sync.
-3. **Docker volume vs host DB** — container uses `dockmon-data:/app/data`. Host path `/home/o51r15/scripts/dockmon/data/dockmon.db` is separate. Don't confuse them.
+3. **Docker volume vs host DB** — container uses `dockllama-data:/app/data`. Host path `/home/o51r15/scripts/dockmon/data/dockllama.db` is separate. Don't confuse them.

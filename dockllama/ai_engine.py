@@ -11,7 +11,7 @@ from typing import Optional
 import httpx
 from pydantic import BaseModel, field_validator
 
-from dockmon.config import OllamaConfig
+from dockllama.config import OllamaConfig
 
 logger = logging.getLogger(__name__)
 

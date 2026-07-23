@@ -11,8 +11,8 @@ from typing import Any
 
 import httpx
 
-from dockmon.config import DockmonConfig
-from dockmon.alerts import _send  # reuse the Apprise sender
+from dockllama.config import DockLlamaConfig
+from dockllama.alerts import _send  # reuse the Apprise sender
 
 logger = logging.getLogger(__name__)
 
@@ -115,13 +115,13 @@ def _extract_json(text: str) -> dict:
     logger.warning("Could not parse LLM digest response: %s", text[:200])
     return {"overall_health": "unknown", "headline": "Digest LLM returned unparseable response."}
 
-async def generate_digest(cfg: DockmonConfig, conn: sqlite3.Connection) -> dict[str, Any]:
+async def generate_digest(cfg: DockLlamaConfig, conn: sqlite3.Connection) -> dict[str, Any]:
     """Generate a daily digest via the configured LLM."""
     stats = _query_period_stats(conn)
 
     # Add trend data for richer digest
     try:
-        from dockmon.trends import get_fleet_trends
+        from dockllama.trends import get_fleet_trends
         container_names = [c["name"] for c in stats.get("containers", [])]
         if container_names:
             trends = get_fleet_trends(conn, container_names)
@@ -177,7 +177,7 @@ async def generate_digest(cfg: DockmonConfig, conn: sqlite3.Connection) -> dict[
 def format_digest_text(digest: dict) -> str:
     """Format the digest dict into a human-readable text block."""
     lines = [
-        f"=== Dockmon Daily Digest ===",
+        f"=== DockLlama Daily Digest ===",
         f"Overall: {digest.get('overall_health', 'unknown').upper()}",
         f"{digest.get('headline', '')}",
         "",
@@ -212,7 +212,7 @@ def format_digest_text(digest: dict) -> str:
     return "\n".join(lines)
 
 
-async def send_digest(cfg: DockmonConfig, conn: sqlite3.Connection) -> dict:
+async def send_digest(cfg: DockLlamaConfig, conn: sqlite3.Connection) -> dict:
     """Generate, store, and send the daily digest."""
     digest = await generate_digest(cfg, conn)
     text = format_digest_text(digest)
@@ -234,6 +234,6 @@ async def send_digest(cfg: DockmonConfig, conn: sqlite3.Connection) -> dict:
         logger.exception("Failed to store digest in DB")
 
     if cfg.alerts.urls:
-        _send("Dockmon Daily Digest", text)
+        _send("DockLlama Daily Digest", text)
 
     return digest

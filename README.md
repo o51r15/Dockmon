@@ -30,7 +30,7 @@ docker compose up -d
 
 # Or run directly (Python 3.12+)
 pip install -r requirements.txt
-python -m dockmon config.yaml
+python -m dockllama config.yaml
 ```
 
 Dashboard: `http://localhost:8556`

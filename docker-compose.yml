@@ -1,17 +1,17 @@
 services:
-  dockmon:
-    image: ghcr.io/o51r15/dockmon:latest
+  dockllama:
+    image: ghcr.io/o51r15/dockllama:latest
     # build: .  # uncomment for local builds
-    container_name: dockmon
+    container_name: dockllama
     restart: unless-stopped
     ports:
       - "8556:8556"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./config.yaml:/app/config/config.yaml:ro
-      - dockmon-data:/app/data
+      - dockllama-data:/app/data
     environment:
       - TZ=America/New_York
 
 volumes:
-  dockmon-data:
+  dockllama-data:

@@ -11,8 +11,8 @@ from datetime import datetime, timezone, timedelta
 import docker
 from docker.models.containers import Container
 
-from dockmon.ai_engine import EvaluationResult
-from dockmon.config import CooldownConfig
+from dockllama.ai_engine import EvaluationResult
+from dockllama.config import CooldownConfig
 
 logger = logging.getLogger(__name__)
 

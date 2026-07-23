@@ -5,9 +5,9 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY dockmon/ dockmon/
+COPY dockllama/ dockllama/
 COPY frontend/ frontend/
 
 EXPOSE 8556
 
-CMD ["python", "-m", "dockmon"]
+CMD ["python", "-m", "dockllama"]

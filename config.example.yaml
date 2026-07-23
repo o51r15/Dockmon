@@ -8,7 +8,7 @@ monitoring:
   poll_interval_seconds: 300
   log_lines_per_check: 200
   dry_run: true
-  db_path: "/app/data/dockmon.db"
+  db_path: "/app/data/dockllama.db"
   retention_days: 90
 
 containers:

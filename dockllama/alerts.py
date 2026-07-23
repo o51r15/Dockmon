@@ -7,8 +7,8 @@ from datetime import datetime, timezone
 
 import apprise
 
-from dockmon.actions import ActionResult
-from dockmon.ai_engine import EvaluationResult
+from dockllama.actions import ActionResult
+from dockllama.ai_engine import EvaluationResult
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +64,7 @@ def save_alert_urls(conn, urls: list[str]) -> None:
 def alert_restart(container_name: str, result: EvaluationResult, action: ActionResult) -> bool:
     """Send an alert when a container is restarted."""
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    title = f"🔄 Dockmon: Restarted {container_name}"
+    title = f"🔄 DockLlama: Restarted {container_name}"
     body = (
         f"**Container:** {container_name}\n"
         f"**Time:** {now}\n"
@@ -80,7 +80,7 @@ def alert_restart(container_name: str, result: EvaluationResult, action: ActionR
 def alert_dry_run(container_name: str, result: EvaluationResult) -> bool:
     """Send an alert for a dry-run restart recommendation."""
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    title = f"⚠️ Dockmon: Would restart {container_name} (dry run)"
+    title = f"⚠️ DockLlama: Would restart {container_name} (dry run)"
     body = (
         f"**Container:** {container_name}\n"
         f"**Time:** {now}\n"
@@ -95,14 +95,14 @@ def alert_dry_run(container_name: str, result: EvaluationResult) -> bool:
 def alert_escalation(container_name: str, consecutive_restarts: int) -> bool:
     """Send an alert when a container enters alert-only mode (boot-loop breaker)."""
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    title = f"🚨 Dockmon: {container_name} in alert-only mode"
+    title = f"🚨 DockLlama: {container_name} in alert-only mode"
     body = (
         f"**Container:** {container_name}\n"
         f"**Time:** {now}\n"
         f"**Consecutive restarts:** {consecutive_restarts}\n"
         f"**Status:** Automatic restarts DISABLED.\n"
         f"**Action required:** Manual intervention needed. "
-        f"The container will continue to be monitored but Dockmon will not restart it "
+        f"The container will continue to be monitored but DockLlama will not restart it "
         f"until it has been healthy for 30+ minutes."
     )
     return _send(title, body, apprise.NotifyType.FAILURE)
@@ -110,7 +110,7 @@ def alert_escalation(container_name: str, consecutive_restarts: int) -> bool:
 
 def alert_cooldown_skip(container_name: str, remaining_seconds: int) -> bool:
     """Send an alert when a restart is skipped due to cooldown."""
-    title = f"⏳ Dockmon: {container_name} restart skipped (cooldown)"
+    title = f"⏳ DockLlama: {container_name} restart skipped (cooldown)"
     body = (
         f"**Container:** {container_name}\n"
         f"**Restart recommended** but cooldown is active.\n"
@@ -121,5 +121,5 @@ def alert_cooldown_skip(container_name: str, remaining_seconds: int) -> bool:
 
 def alert_error(message: str) -> bool:
     """Send an alert for system-level errors (Ollama down, etc.)."""
-    title = "❌ Dockmon: System Error"
+    title = "❌ DockLlama: System Error"
     return _send(title, message, apprise.NotifyType.FAILURE)

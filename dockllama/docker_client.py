@@ -1,4 +1,4 @@
-"""Docker SDK wrapper for Dockmon."""
+"""Docker SDK wrapper for DockLlama."""
 
 from __future__ import annotations
 
