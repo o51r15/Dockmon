@@ -89,6 +89,10 @@ class LogSummary:
     recovery_detected: bool = False
     error_patterns: list = field(default_factory=list)
     recent_tail: list = field(default_factory=list)
+    # Resource metrics (from Docker stats)
+    cpu_percent: float | None = None
+    mem_percent: float | None = None
+
     # Keep raw lines + levels for the EvaluationContext
     all_lines: list = field(default_factory=list)
     all_levels: list = field(default_factory=list)
@@ -101,6 +105,12 @@ class LogSummary:
         parts.append(f"Container: {self.container_name}")
         if self.time_span_human:
             parts.append(f"Log window: {self.time_span_human} ({self.first_timestamp} to {self.last_timestamp})")
+        # Resource usage (if available)
+        if self.cpu_percent is not None or self.mem_percent is not None:
+            cpu_str = f"{self.cpu_percent}%" if self.cpu_percent is not None else "N/A"
+            mem_str = f"{self.mem_percent}%" if self.mem_percent is not None else "N/A"
+            parts.append(f"Resource Usage: CPU {cpu_str} | RAM {mem_str}")
+
         parts.append(
             f"Lines: {self.total_lines} total | "
             f"{self.severity_counts['info']} INFO | "

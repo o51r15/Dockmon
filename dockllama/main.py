@@ -15,7 +15,7 @@ from fastapi.staticfiles import StaticFiles
 
 from dockllama.config import load_config, DockLlamaConfig
 from dockllama.db import init_db, verify_tables, prune_old_events, vacuum_db
-from dockllama.docker_client import get_client, get_logs, list_containers
+from dockllama.docker_client import get_client, get_logs, list_containers, get_container_stats
 from dockllama.log_pipeline import process_logs
 from dockllama.log_analyzer import analyze_logs
 from dockllama.ai_engine import evaluate, EvaluationContext, EvaluationResult
@@ -157,6 +157,11 @@ async def _process_container(container_cfg, container, cfg: DockLlamaConfig, con
         max_lines=cfg.monitoring.log_lines_per_check,
     )
 
+    # Fetch resource metrics
+    metrics = get_container_stats(container)
+    summary.cpu_percent = metrics["cpu_percent"]
+    summary.mem_percent = metrics["mem_percent"]
+
     # Also run old filter for backward compat (log snapshot, baseline)
     batch = process_logs(
         container_name=container_cfg.name,
@@ -165,14 +170,18 @@ async def _process_container(container_cfg, container, cfg: DockLlamaConfig, con
         max_lines=cfg.monitoring.log_lines_per_check,
     )
 
+    cpu_str = f"{summary.cpu_percent}%" if summary.cpu_percent is not None else "N/A"
+    mem_str = f"{summary.mem_percent}%" if summary.mem_percent is not None else "N/A"
     logger.info(
-        "[%s] %d lines analyzed | %d INFO, %d WARN, %d ERROR | recovery=%s",
+        "[%s] %d lines analyzed | %d INFO, %d WARN, %d ERROR | recovery=%s | CPU %s RAM %s",
         container_cfg.name,
         summary.total_lines,
         summary.severity_counts["info"],
         summary.severity_counts["warn"],
         summary.severity_counts["error"],
         summary.recovery_detected,
+        cpu_str,
+        mem_str,
     )
 
     # 3. Skip LLM if all logs were filtered (nothing meaningful to evaluate)
