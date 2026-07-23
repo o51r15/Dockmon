@@ -1,24 +1,12 @@
 # DockLlama — Developer Log & Handoff
 
-**Last updated:** July 23, 2026 (end of Session 3)
+**Last updated:** July 23, 2026 (end of Session 4)
 **Repository:** https://github.com/o51r15/DockLlama (renamed from DockLlama)
 **Status:** Running in dry-run mode as Docker container, monitoring 15 production containers
-**Latest commit:** `f9daf92` — Update handoff docs
+**Latest commit:** `257dbb4` — Add routine counts to severity display
 
-## FIRST TASK: Complete Rename from DockLlama to DockLlama
-
-The GitHub repo has been renamed by the user. The following still need updating in the codebase:
-
-- All Python source references to "Dockmon" / "dockmon" (module name, log strings, FastAPI title, banner)
-- Docker image tag: `ghcr.io/o51r15/dockllama:dev` (was `ghcr.io/o51r15/dockmon:dev`)
-- GitHub Actions workflow (image name in `.github/workflows/docker-publish.yml`)
-- Container name in `docker run` command (currently `--name dockmon`)
-- README, config.example.yaml, any user-facing strings
-- Python package directory: rename `dockmon/` → `dockllama/` and update all imports
-- `__main__.py`, `Dockerfile` CMD, `docker-compose.yml` service name
-- This file and `roadmap.md` (replace remaining "Dockmon" references)
-
-Do this rename BEFORE starting the roadmap phases. Follow the standard inspect→build→review→test→review workflow.
+## FIRST TASK: Complete Rename ✅ DONE (Session 4)
+Renamed dockmon → dockllama across 32 files including Python package dir, imports, Docker image, CI/CD, compose, all user-facing strings.
 
 ---
 
@@ -48,7 +36,7 @@ When the user says **"lets start the roadmap"**:
 
 Dockmon is an AI-driven Docker container health monitoring system. It polls container logs, runs them through a structured Python preprocessor, sends summaries to a local LLM (Ollama), and takes action (restart, alert, or dry-run log) based on the AI's health assessment. It has a web dashboard, daily digest reports, and Apprise-based notifications.
 
-**Stack:** Python 3.14, FastAPI, Alpine.js, SQLite (WAL), Ollama (llama3.1:8b)
+**Stack:** Python 3.14, FastAPI, Alpine.js, SQLite (WAL), Ollama (llama3.1:8b default, gemma4 digest)
 
 ---
 
@@ -197,7 +185,7 @@ main.py: _process_container()
 
 ## Configuration
 
-**config.yaml** (gitignored, on server): 15 containers, `poll_interval_seconds: 900`, `timeout_seconds: 300`, `base_url: "http://192.168.1.125:11434"`, `default_model: "llama3.1:8b"`, `digest_model: "gemma4:latest"`, `dry_run: true`.
+**config.yaml** (gitignored, on server): 15 containers, `poll_interval_seconds: 900`, `timeout_seconds: 300`, `base_url: "http://192.168.1.125:11434"`, `default_model: "llama3.1:8b"` (was briefly qwen2.5:7b-instruct, reverted), `digest_model: "gemma4:latest"`, `dry_run: true`.
 
 **Monitored containers (15):** gluetun, bitmagnet, bitmagnet-postgres, qbittorrent, kometa, audiobookshelf, pinchfork, pinchfork-db, jellyfin, karakeep, karakeep_chrome, karakeep_meilisearch, memos, tautulli, seerr
 
@@ -310,6 +298,24 @@ Built v5 structured preprocessor (biggest quality improvement). Switched to llam
 Auto-healthy fast path. Expanded Chrome ignore patterns. Settings page + Digest viewer. Fixed digest generation (num_predict too low for 15 containers + robust JSON extraction). Persisted notification URLs in SQLite. Updated roadmap with Phases 7–11 including detailed telemetry and context injection plans.
 
 Key commits this session: `d3b4c52` (auto-healthy, digest fix, settings/digest pages), `fce7554` (digest num_predict bump), `6bee8b0` (alert URL persistence fix).
+### Session 4 — Telemetry, Context Injection & Model Tuning (July 23, 2026)
+
+**Rename:** Completed dockmon → dockllama across 32 files (package dir, imports, Docker, CI/CD, compose, strings).
+
+**Phase 7 (Telemetry):** Added `get_container_stats()` to docker_client.py using Docker stats API with delta CPU calculation. Added cpu_percent/mem_percent to LogSummary dataclass and to_prompt() output. Added resource correlation rules to v5_evaluate.txt. All 15 containers now report CPU/RAM metrics.
+
+**Phase 8.1-8.3 (Context Injection):** Added context_prompt, examples, and known_patterns fields to ContainerConfig. context_prompt injects container-specific knowledge into the system prompt. Few-shot examples provide calibration scenarios. known_patterns tag matching log lines with [ROUTINE:] metadata. Configured context for gluetun (port forwarding failures), bitmagnet-postgres (shutdown sequences), and karakeep_chrome (headless Chromium noise).
+
+**Base prompt improvements:** Added "What you are reading" section to v5_evaluate.txt explaining the full preprocessing pipeline (ignore_patterns, known_patterns, severity counting, context overrides). Added "Reading the severity line" section explaining routine counts.
+
+**Routine counts:** Added routine_counts tracking to log_analyzer.py — counts how many ERROR/WARN lines carry [ROUTINE:] tags and displays inline: `18 (18 routine) ERROR`.
+
+**Model switch:** Switched from qwen2.5:7b-instruct back to llama3.1:8b for better context-following.
+
+**Known bug:** karakeep_chrome scores 60 (DEGRADED) despite all errors being routine Chromium noise. See BUG_karakeep_chrome_scoring.md for full analysis and future fix ideas. Best candidate: reclassify routine-tagged lines as INFO in the preprocessor.
+
+Key commits: rename (32 files), Phase 7 metrics pipeline, Phase 8 context injection, preprocessing explanation in base prompt, routine counts in severity display.
+
 
 ---
 
@@ -327,6 +333,6 @@ Key commits this session: `d3b4c52` (auto-healthy, digest fix, settings/digest p
 
 ## Known Issues
 
-1. **karakeep_chrome** occasionally shows "degraded" — Chrome versions may produce new noise lines. Phase 8.3 (metadata tagging) will address this more robustly than adding more ignore patterns.
+1. **karakeep_chrome** scores DEGRADED (60) despite all errors being routine headless Chromium noise. Phase 8.1-8.3 context injection implemented but small LLMs can't override severity count anchoring. See BUG_karakeep_chrome_scoring.md for full analysis. Best fix: reclassify routine-tagged lines as INFO in preprocessor.
 2. **Docker image tag mismatch** — docker-compose.yml references `:latest` but active container runs `:dev`. Next GitHub Release will sync.
 3. **Docker volume vs host DB** — container uses `dockllama-data:/app/data`. Host path `/home/o51r15/scripts/dockmon/data/dockllama.db` is separate. Don't confuse them.

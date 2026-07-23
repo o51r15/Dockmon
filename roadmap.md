@@ -15,9 +15,8 @@ Do NOT batch multiple sub-phases into one commit. One sub-phase = one commit = o
 
 ---
 
-## Pre-Roadmap: Rename Dockmon → DockLlama ⬅️ DO THIS FIRST
-
-The GitHub repo has been renamed by the user. Complete the codebase rename before starting any roadmap phases. See the checklist in `develop.md` under "FIRST TASK."
+## Pre-Roadmap: Rename Dockmon → DockLlama ✅ DONE (Session 4)
+Renamed across 32 files — Python package dir, imports, Docker image, CI/CD, compose, all user-facing strings.
 
 ---
 
@@ -80,7 +79,7 @@ The GitHub repo has been renamed by the user. Complete the codebase rename befor
 #### 6.1 Persisted Notifications ✅ DONE (Session 3, commit `6bee8b0`)
 Added `alert_urls` table to SQLite. PUT /api/alerts saves to DB, GET reads from DB. Startup merges DB URLs with config.yaml URLs. Tested: add URL → restart container → URL persists.
 
-#### 6.2 Docker Compose Dependency Awareness
+#### 6.2 Docker Compose Dependency Awareness ⬅️ START HERE
 Restarting `gluetun` breaks network routing for `qbittorrent` unless both are restarted in the correct order. Rather than waiting for the AI to flag dependent containers as unhealthy minutes later, Dockmon should execute coordinated restarts automatically.
 
 **Config approach:** Use an explicit `dependency_groups` block rather than Docker Compose labels, since users often link containers across different compose files:
@@ -114,9 +113,9 @@ Detect containers failing within 60s of each other and surface correlated failur
 
 ---
 
-### Phase 7 — Telemetry & Resource Correlation ⬅️ START HERE
+### Phase 7 — Telemetry & Resource Correlation ✅ DONE (Session 4)
 
-**Status:** NOT STARTED
+**Status:** COMPLETE
 **Objective:** Enrich the LLM's context window by feeding it live CPU and memory metrics alongside log summaries. This is the most effective way to eliminate false positives — "OOM" logs are meaningless if the container has 8GB free RAM, but critical if it's pinned at 100%.
 
 **Why this goes first:** Telemetry is read-only enrichment with zero risk to existing behavior. Dependency groups (6.2) touch restart logic and should wait.
@@ -166,12 +165,12 @@ Add explicit correlation rules to `v5_evaluate.txt`:
 
 ### Phase 8 — Intelligent Evaluation: From Data Deletion to Context Injection
 
-**Status:** NOT STARTED (do after Phase 7)
+**Status:** 8.1-8.3 COMPLETE (Session 4), 8.4-8.5 NOT STARTED
 **Objective:** Transition from relying on `ignore_patterns` (which blindfold the AI) to teaching the AI what it's looking at. Three architectural methods work together to eliminate false positives while preserving the AI's ability to detect real problems.
 
 **Core principle:** Never delete data from the AI's view. Instead, add context so it understands what "normal" looks like for each specific container.
 
-#### 8.1 Dynamic System Context (Container-Specific Prompts)
+#### 8.1 Dynamic System Context (Container-Specific Prompts) ✅ DONE (Session 4)
 
 When the evaluation pipeline detects a specific workload type (PostgreSQL, VPN, torrent client, media server), it appends a targeted knowledge block to `v5_evaluate.txt` before sending to the LLM. This block defines acceptable behaviors that would otherwise look like failures.
 
@@ -207,7 +206,7 @@ containers:
 - Pass `container_cfg.context_prompt` through from `_process_container()` in `main.py`
 - This is a ~15 line change across 3 files with zero risk to existing behavior (None = no change)
 
-#### 8.2 Few-Shot Learning (Example-Based Calibration)
+#### 8.2 Few-Shot Learning (Example-Based Calibration) ✅ DONE (Session 4)
 
 Language models learn by example. Provide a small reference section inside the prompt containing a sample log of a known false positive alongside the correct analysis. By showing the model a benign shutdown sequence scored as healthy, it maps that logic to live data.
 
@@ -249,7 +248,7 @@ containers:
   ```
 - Few-shot examples are the most effective way to calibrate small models like llama3.1:8b — they often outperform lengthy rule descriptions
 
-#### 8.3 Contextual Metadata Tagging (Preprocessor Annotations)
+#### 8.3 Contextual Metadata Tagging (Preprocessor Annotations) ✅ DONE (Session 4)
 
 Rather than altering the LLM prompt, alter the data payload. Add a lightweight preprocessing step in `log_analyzer.py` that scans for known administrative commands or expected patterns. When it finds one, it appends a metadata note to that log line so the AI reads the raw log and the context simultaneously.
 
