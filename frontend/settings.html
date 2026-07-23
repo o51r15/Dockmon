@@ -87,6 +87,30 @@ label { display:block; font-size:0.85rem; color:var(--text-dim); margin-bottom:0
 .loading { color:var(--text-dim); font-style:italic; }
 
 
+
+/* Interval Calculator */
+.interval-section { margin-top:1.5rem; padding:1.25rem; background:var(--surface); border:1px solid var(--border); border-radius:8px; }
+.interval-section h3 { margin:0 0 0.5rem; font-size:1rem; }
+.interval-meta { font-size:0.8rem; color:var(--text-dim); margin-bottom:1rem; display:flex; gap:1.5rem; flex-wrap:wrap; }
+.interval-meta strong { color:var(--text); }
+.interval-slider-wrap { position:relative; margin:1.5rem 0 0.5rem; }
+.interval-slider { width:100%; -webkit-appearance:none; appearance:none; height:8px; border-radius:4px; outline:none; cursor:pointer; }
+.interval-slider::-webkit-slider-thumb { -webkit-appearance:none; appearance:none; width:20px; height:20px; border-radius:50%; background:white; border:2px solid var(--blue); cursor:grab; box-shadow:0 1px 3px rgba(0,0,0,0.3); }
+.interval-zones { display:flex; height:8px; border-radius:4px; overflow:hidden; margin-bottom:0.25rem; pointer-events:none; }
+.zone-red { background:#ef4444; }
+.zone-yellow { background:#f59e0b; }
+.zone-green { background:#22c55e; flex:1; }
+.interval-labels { display:flex; justify-content:space-between; font-size:0.7rem; color:var(--text-dim); }
+.interval-value { text-align:center; margin-top:0.75rem; }
+.interval-value .big { font-size:1.5rem; font-weight:700; }
+.interval-value .unit { font-size:0.85rem; color:var(--text-dim); margin-left:0.25rem; }
+.interval-value .zone-label { display:inline-block; padding:0.15rem 0.5rem; border-radius:4px; font-size:0.7rem; font-weight:600; text-transform:uppercase; margin-left:0.75rem; }
+.zone-label-red { background:rgba(239,68,68,0.15); color:#ef4444; }
+.zone-label-yellow { background:rgba(245,158,11,0.15); color:#f59e0b; }
+.zone-label-green { background:rgba(34,197,94,0.15); color:#22c55e; }
+.interval-actions { display:flex; gap:0.75rem; align-items:center; margin-top:1rem; }
+.interval-note { font-size:0.75rem; color:var(--text-dim); margin-top:0.75rem; }
+
 /* Models */
 .model-grid { display:grid; gap:0.75rem; }
 .model-card { background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:1rem; display:flex; justify-content:space-between; align-items:center; }
@@ -380,6 +404,62 @@ label { display:block; font-size:0.85rem; color:var(--text-dim); margin-bottom:0
               </template>
             </div>
           </template>
+
+
+          <!-- Interval Calculator (Phase 9.3) -->
+          <div class="interval-section" x-show="intervalData && !intervalData.note">
+            <h3>Poll Interval Calculator</h3>
+            <div class="interval-meta">
+              <span>Model: <strong x-text="intervalData?.current_model"></strong></span>
+              <span>Avg eval: <strong x-text="intervalData?.avg_response_ms + 'ms'"></strong></span>
+              <span>Containers: <strong x-text="intervalData?.container_count"></strong></span>
+              <span>Total work: <strong x-text="formatSeconds(intervalData?.total_work_seconds || 0)"></strong></span>
+            </div>
+
+            <div class="interval-slider-wrap">
+              <div class="interval-zones" :style="zoneBarStyle()">
+                <div class="zone-red" :style="'width:' + zonePercent('red') + '%'"></div>
+                <div class="zone-yellow" :style="'width:' + zonePercent('yellow') + '%'"></div>
+                <div class="zone-green"></div>
+              </div>
+              <input type="range" class="interval-slider"
+                     :min="60" :max="sliderMax()"
+                     x-model.number="intervalValue"
+                     @input="intervalDirty = true">
+              <div class="interval-labels">
+                <span>1 min</span>
+                <span x-text="formatSeconds(intervalData?.zones?.red_max || 0) + ' (work)'"></span>
+                <span x-text="formatSeconds(intervalData?.zones?.green_start || 0) + ' (safe)'"></span>
+                <span x-text="formatSeconds(sliderMax())"></span>
+              </div>
+            </div>
+
+            <div class="interval-value">
+              <span class="big" x-text="formatSeconds(intervalValue)"></span>
+              <span class="unit" x-text="'(' + intervalValue + 's)'"></span>
+              <span class="zone-label" :class="intervalZoneClass()" x-text="intervalZoneName()"></span>
+            </div>
+
+            <div class="interval-actions">
+              <button class="btn btn-primary" @click="saveInterval()" :disabled="!intervalDirty || savingInterval"
+                      style="font-size:0.85rem;padding:0.4rem 1rem;">
+                <span x-text="savingInterval ? 'Saving...' : 'Apply Interval'"></span>
+              </button>
+              <button class="btn btn-test" @click="intervalValue = intervalData.recommended_interval; intervalDirty = true"
+                      style="font-size:0.85rem;padding:0.4rem 1rem;">
+                Use Recommended
+              </button>
+            </div>
+            <div class="interval-note">
+              Runtime change only. Update <code>poll_interval_seconds</code> in config.yaml to persist across restarts.
+            </div>
+          </div>
+
+          <div class="interval-section" x-show="intervalData && intervalData.note" style="color:var(--text-dim);">
+            <h3>Poll Interval Calculator</h3>
+            <p x-text="intervalData?.note" style="font-size:0.85rem;margin:0.5rem 0 0;"></p>
+          </div>
+
         </div>
       </div>
     </div>
@@ -416,6 +496,11 @@ function settingsApp() {
     modelsLoading: false,
     testingModel: null,
     lastTestResult: null,
+    // Interval calculator
+    intervalData: null,
+    intervalValue: 900,
+    intervalDirty: false,
+    savingInterval: false,
     // Toast
     toast: { show: false, msg: '', type: 'success' },
 
@@ -554,6 +639,7 @@ function settingsApp() {
         this.models = data.models || [];
       } catch(e) { this.showToast('Failed to load models: ' + e.message, 'error'); }
       this.modelsLoading = false;
+      this.loadIntervalCalc();
     },
 
     async testModel(name) {
@@ -567,6 +653,7 @@ function settingsApp() {
         if (!r.ok) throw new Error('Test failed');
         this.lastTestResult = await r.json();
         await this.loadModels();  // refresh badges
+        await this.loadIntervalCalc();  // recalculate interval
         this.showToast(
           this.lastTestResult.passed ? name + ' passed validation!' : name + ' failed validation',
           this.lastTestResult.passed ? 'success' : 'error'
@@ -585,6 +672,71 @@ function settingsApp() {
         await this.loadModels();
         this.showToast(name + ' set as default ' + role + ' model', 'success');
       } catch(e) { this.showToast(e.message, 'error'); }
+    },
+
+
+    // ── Interval Calculator ──
+    async loadIntervalCalc() {
+      try {
+        const r = await fetch('/api/models/interval-calc');
+        if (!r.ok) return;
+        this.intervalData = await r.json();
+        this.intervalValue = this.intervalData.current_interval;
+        this.intervalDirty = false;
+      } catch(e) { /* silent */ }
+    },
+
+    async saveInterval() {
+      this.savingInterval = true;
+      try {
+        const r = await fetch('/api/config/interval', {
+          method: 'PUT', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ poll_interval_seconds: this.intervalValue }),
+        });
+        if (!r.ok) { const d = await r.json(); throw new Error(d.detail || 'Failed'); }
+        this.intervalDirty = false;
+        this.intervalData.current_interval = this.intervalValue;
+        this.showToast('Poll interval set to ' + this.formatSeconds(this.intervalValue), 'success');
+      } catch(e) { this.showToast('Failed: ' + e.message, 'error'); }
+      this.savingInterval = false;
+    },
+
+    formatSeconds(s) {
+      if (!s || s < 60) return s + 's';
+      const m = Math.floor(s / 60);
+      const rem = s % 60;
+      return rem ? m + 'm ' + rem + 's' : m + 'm';
+    },
+
+    sliderMax() {
+      const green = this.intervalData?.zones?.green_start || 600;
+      return Math.max(green * 2, 1800);  // at least 30 min range
+    },
+
+    zonePercent(zone) {
+      const max = this.sliderMax();
+      const z = this.intervalData?.zones || {};
+      if (zone === 'red') return ((z.red_max || 0) / max * 100);
+      if (zone === 'yellow') return (((z.yellow_max || 0) - (z.red_max || 0)) / max * 100);
+      return 0;
+    },
+
+    zoneBarStyle() { return ''; },
+
+    intervalZoneName() {
+      if (!this.intervalData) return '';
+      const z = this.intervalData.zones;
+      if (this.intervalValue <= z.red_max) return 'TOO FAST';
+      if (this.intervalValue <= z.yellow_max) return 'TIGHT';
+      return 'SAFE';
+    },
+
+    intervalZoneClass() {
+      if (!this.intervalData) return '';
+      const z = this.intervalData.zones;
+      if (this.intervalValue <= z.red_max) return 'zone-label-red';
+      if (this.intervalValue <= z.yellow_max) return 'zone-label-yellow';
+      return 'zone-label-green';
     },
 
     showToast(msg, type) {

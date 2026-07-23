@@ -746,6 +746,86 @@ async def list_tested_models():
         conn.close()
 
 
+
+# --- Interval Calculator (Phase 9.3) ---
+
+@router.get("/models/interval-calc")
+async def calculate_interval():
+    """Calculate recommended poll interval based on model benchmark and container count."""
+    cfg = _get_cfg()
+    conn = init_db(cfg.monitoring.db_path)
+    try:
+        tested = get_tested_models(conn)
+    finally:
+        conn.close()
+
+    # Find the current default model's avg_response_ms
+    current_model = cfg.ollama.default_model
+    model_info = None
+    for m in tested:
+        if m["model"] == current_model:
+            model_info = m
+            break
+
+    container_count = len([c for c in cfg.containers if c.enabled])
+    avg_ms = model_info["avg_response_ms"] if model_info else 0
+
+    if avg_ms == 0:
+        # No benchmark data — return defaults with a note
+        return {
+            "current_model": current_model,
+            "avg_response_ms": 0,
+            "container_count": container_count,
+            "total_work_seconds": 0,
+            "recommended_interval": cfg.monitoring.poll_interval_seconds,
+            "current_interval": cfg.monitoring.poll_interval_seconds,
+            "zones": {"red_max": 0, "yellow_max": 0, "green_start": 0},
+            "note": "No benchmark data. Validate the current model first.",
+        }
+
+    avg_seconds = avg_ms / 1000.0
+    total_work = avg_seconds * container_count
+    buffer_2min = total_work + 120
+    buffer_5min = total_work + 300
+
+    return {
+        "current_model": current_model,
+        "avg_response_ms": avg_ms,
+        "container_count": container_count,
+        "total_work_seconds": round(total_work),
+        "recommended_interval": round(buffer_5min),
+        "current_interval": cfg.monitoring.poll_interval_seconds,
+        "zones": {
+            "red_max": round(total_work),
+            "yellow_max": round(buffer_2min),
+            "green_start": round(buffer_5min),
+        },
+        "note": None,
+    }
+
+
+class IntervalUpdateRequest(BaseModel):
+    poll_interval_seconds: int
+
+
+@router.put("/config/interval")
+async def update_interval(req: IntervalUpdateRequest):
+    """Update the runtime poll interval (does not persist to config.yaml)."""
+    if req.poll_interval_seconds < 60:
+        raise HTTPException(400, "Interval must be at least 60 seconds")
+    if req.poll_interval_seconds > 7200:
+        raise HTTPException(400, "Interval must be at most 7200 seconds (2 hours)")
+    cfg = _get_cfg()
+    old = cfg.monitoring.poll_interval_seconds
+    cfg.monitoring.poll_interval_seconds = req.poll_interval_seconds
+    return {
+        "status": "ok",
+        "old_interval": old,
+        "new_interval": req.poll_interval_seconds,
+        "note": "Change is runtime-only. Update config.yaml to persist across restarts.",
+    }
+
+
 # --- Alert management ---
 
 class AlertConfig(BaseModel):
