@@ -214,6 +214,7 @@ def analyze_logs(
     container_name: str,
     raw_logs: str,
     ignore_patterns: list[str] | None = None,
+    known_patterns: list[dict] | None = None,
     max_lines: int = 200,
     tail_size: int = 25,
 ) -> LogSummary:
@@ -240,6 +241,18 @@ def analyze_logs(
             except re.error:
                 pass
 
+    # Compile known patterns for metadata tagging
+    compiled_known = []
+    if known_patterns:
+        for kp in known_patterns:
+            try:
+                compiled_known.append((
+                    re.compile(kp["pattern"]),
+                    kp.get("tag", "[KNOWN]"),
+                ))
+            except (re.error, KeyError):
+                pass
+
     # Process each line
     lines = []
     levels = []
@@ -259,6 +272,12 @@ def analyze_logs(
                 break
         if ignored:
             continue
+
+        # Tag known patterns with contextual metadata
+        for kp_regex, kp_tag in compiled_known:
+            if kp_regex.search(clean):
+                clean = f"{clean} {kp_tag}"
+                break
 
         level = detect_level(clean)
         ts = _parse_timestamp(clean)

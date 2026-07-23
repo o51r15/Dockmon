@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
@@ -78,6 +78,7 @@ class EvaluationContext:
     structured_summary: Optional[str] = None  # from log_analyzer
     baseline_sample: Optional[str] = None
     context_prompt: Optional[str] = None
+    examples: list[dict] = field(default_factory=list)
     prompt_version: str = DEFAULT_PROMPT_VERSION
 
 
@@ -96,6 +97,23 @@ def _build_messages(ctx: EvaluationContext) -> tuple[str, str]:
     # Append container-specific context if provided
     if ctx.context_prompt:
         system_prompt += "\n\n## Container-Specific Context\n" + ctx.context_prompt
+
+    # Append few-shot examples if provided
+    if ctx.examples:
+        parts = ["\n\n## Reference Examples"]
+        parts.append("The following are known scenarios with their correct evaluations. Use these to calibrate your scoring.")
+        for ex in ctx.examples:
+            label = ex.get("label", "Example")
+            snippet = ex.get("log_snippet", "")
+            score = ex.get("correct_score", "N/A")
+            status = ex.get("correct_status", "N/A")
+            reasoning = ex.get("reasoning", "")
+            parts.append(f"\n### Example: {label}")
+            parts.append(f"Log sample:\n---\n{snippet}\n---")
+            parts.append(f"Correct assessment: {status}, score {score}")
+            if reasoning:
+                parts.append(f"Reasoning: {reasoning}")
+        system_prompt += "\n".join(parts)
 
     # v5: use structured summary from log_analyzer if available
     if ctx.structured_summary:

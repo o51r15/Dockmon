@@ -154,6 +154,7 @@ async def _process_container(container_cfg, container, cfg: DockLlamaConfig, con
         container_name=container_cfg.name,
         raw_logs=raw_logs,
         ignore_patterns=container_cfg.ignore_patterns,
+        known_patterns=container_cfg.known_patterns,
         max_lines=cfg.monitoring.log_lines_per_check,
     )
 
@@ -250,6 +251,7 @@ async def _process_container(container_cfg, container, cfg: DockLlamaConfig, con
         structured_summary=summary.to_prompt(),
         baseline_sample=baseline,
         context_prompt=container_cfg.context_prompt,
+        examples=container_cfg.examples,
     )
 
     result, prompt_version = await evaluate(ctx, cfg.ollama)

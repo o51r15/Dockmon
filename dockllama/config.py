@@ -32,6 +32,8 @@ class ContainerConfig(BaseModel):
     ignore_patterns: list[str] = []
     compose_group: Optional[str] = None
     context_prompt: Optional[str] = None
+    examples: list[dict] = []
+    known_patterns: list[dict] = []
 
 
 class CooldownConfig(BaseModel):
