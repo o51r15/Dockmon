@@ -377,7 +377,7 @@ Before a model can be saved as the default, it must pass two hardcoded test fixt
 
 **Advanced mode:** Users can also paste their own log samples and define expected outcomes to test models against real-world scenarios specific to their stack.
 
-#### 9.3 Hardware-Aware Poll Interval Calculation
+#### 9.3 Hardware-Aware Poll Interval Calculation ✅
 
 Once a model passes validation, its average response time unlocks the interval configuration:
 
