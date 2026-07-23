@@ -631,8 +631,22 @@ Recent Tail (last 10 lines):
 
     from dockllama.ai_engine import evaluate, EvaluationContext
 
+    # Warmup: load model into VRAM before timed tests
+    import httpx as _httpx
+    import time as _time
+    try:
+        async with _httpx.AsyncClient(timeout=cfg.ollama.timeout_seconds) as wc:
+            await wc.post(
+                f"{cfg.ollama.base_url}/api/generate",
+                json={"model": req.model, "prompt": "Ready.", "stream": False,
+                      "options": {"num_predict": 1}},
+            )
+    except Exception:
+        pass  # warmup failure is non-fatal
+
     results = {}
     times = []
+
 
     # Test 1: Healthy fixture
     import time as _time
