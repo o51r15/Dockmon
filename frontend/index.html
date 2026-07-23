@@ -42,12 +42,45 @@ nav a.active, nav a:hover { color:var(--text); background:var(--surface2); }
 .conf-high { color:var(--green); }
 .conf-mid { color:var(--yellow); }
 .conf-low { color:var(--red); }
+
+
+/* Fleet overview */
+.fleet-bar { display:flex; gap:1.5rem; padding:0 2rem; margin-top:-0.5rem; margin-bottom:0.5rem; flex-wrap:wrap; }
+.fleet-stat { background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:0.6rem 1rem; display:flex; align-items:center; gap:0.6rem; }
+.fleet-stat .fs-value { font-size:1.1rem; font-weight:700; }
+.fleet-stat .fs-label { font-size:0.7rem; color:var(--text-dim); }
+.fleet-stat .fs-icon { font-size:1rem; }
+/* Sparklines */
+.card-sparklines { display:flex; gap:0.75rem; margin-top:0.5rem; }
+.sparkline-wrap { flex:1; }
+.sparkline-label { font-size:0.65rem; color:var(--text-dim); margin-bottom:0.15rem; }
+.sparkline-value { font-size:0.65rem; color:var(--text); font-weight:600; float:right; }
+.sparkline svg { width:100%; height:24px; }
+.sparkline path { fill:none; stroke-width:1.5; stroke-linecap:round; stroke-linejoin:round; }
+.spark-cpu { stroke:#3b82f6; }
+.spark-mem { stroke:#8b5cf6; }
+.spark-area-cpu { fill:rgba(59,130,246,0.1); stroke:none; }
+.spark-area-mem { fill:rgba(139,92,246,0.1); stroke:none; }
+/* Detail drawer */
+.detail-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:100; }
+.detail-drawer { position:fixed; top:0; right:0; bottom:0; width:min(600px,90vw); background:var(--bg); border-left:1px solid var(--border); z-index:101; overflow-y:auto; padding:1.5rem; }
+.detail-drawer h2 { margin:0 0 0.25rem; font-size:1.25rem; }
+.detail-drawer .close-btn { position:absolute; top:1rem; right:1rem; background:none; border:none; color:var(--text-dim); font-size:1.5rem; cursor:pointer; }
+.detail-tabs { display:flex; gap:0; border-bottom:1px solid var(--border); margin:1rem 0; }
+.detail-tab { padding:0.5rem 1rem; cursor:pointer; font-size:0.85rem; color:var(--text-dim); border-bottom:2px solid transparent; }
+.detail-tab.active { color:var(--text); border-bottom-color:var(--blue); }
+.chart-container { position:relative; height:200px; margin-bottom:1rem; }
+.chart-container canvas { width:100%!important; }
+.range-selector { display:flex; gap:0.5rem; margin-bottom:1rem; }
+.range-btn { background:var(--surface); border:1px solid var(--border); color:var(--text-dim); padding:0.25rem 0.75rem; border-radius:4px; cursor:pointer; font-size:0.75rem; }
+.range-btn.active { background:var(--blue); color:white; border-color:var(--blue); }
 .card-actions { margin-top:0.75rem; display:flex; gap:0.5rem; }
 .btn { padding:0.35rem 0.75rem; border-radius:5px; border:1px solid var(--border); background:var(--surface2); color:var(--text); font-size:0.75rem; cursor:pointer; }
 .btn:hover { background:var(--border); }
 .btn-eval { border-color:var(--blue); color:var(--blue); }
 .loading { text-align:center; padding:3rem; color:var(--text-dim); }
 </style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 </head>
 <body x-data="dashboard()" x-init="init()">
 
@@ -72,9 +105,23 @@ nav a.active, nav a:hover { color:var(--text); background:var(--surface2); }
   <div class="loading">Loading containers...</div>
 </template>
 
+<div class="fleet-bar" x-show="!loading && fleetData">
+  <div class="fleet-stat">
+    <span class="fs-icon">&#x1F4BB;</span>
+    <div><div class="fs-value" x-text="fleetData?.container_count || 0"></div><div class="fs-label">Containers</div></div>
+  </div>
+  <div class="fleet-stat">
+    <span class="fs-icon">&#x26A1;</span>
+    <div><div class="fs-value" x-text="(fleetData?.total_cpu || 0) + '%'"></div><div class="fs-label">Total CPU</div></div>
+  </div>
+  <div class="fleet-stat">
+    <span class="fs-icon">&#x1F4BE;</span>
+    <div><div class="fs-value" x-text="formatMB(fleetData?.total_mem_mb || 0)"></div><div class="fs-label">Total RAM</div></div>
+  </div>
+</div>
 <div class="grid" x-show="!loading">
   <template x-for="c in containers" :key="c.name">
-    <div class="card">
+    <div class="card" @click="openDetail(c)" style="cursor:pointer;">
       <div class="card-header">
         <span class="card-name" x-text="c.name"></span>
         <span class="status-dot" :class="dotClass(c)"></span>
@@ -98,6 +145,16 @@ nav a.active, nav a:hover { color:var(--text); background:var(--surface2); }
       <template x-if="!c.last_evaluation">
         <div class="card-eval" style="color:var(--text-dim)">No evaluation yet</div>
       </template>
+      <div class="card-sparklines" x-show="c._spark">
+        <div class="sparkline-wrap">
+          <div class="sparkline-label">CPU <span class="sparkline-value" x-text="c._spark?.cpu_now ?? '-'"></span></div>
+          <div class="sparkline"><svg viewBox="0 0 100 24" preserveAspectRatio="none"><path class="spark-area-cpu" :d="sparkArea(c._spark?.cpu || [])"/><path class="spark-cpu" :d="sparkLine(c._spark?.cpu || [])"/></svg></div>
+        </div>
+        <div class="sparkline-wrap">
+          <div class="sparkline-label">RAM <span class="sparkline-value" x-text="c._spark?.mem_now ?? '-'"></span></div>
+          <div class="sparkline"><svg viewBox="0 0 100 24" preserveAspectRatio="none"><path class="spark-area-mem" :d="sparkArea(c._spark?.mem || [])"/><path class="spark-mem" :d="sparkLine(c._spark?.mem || [])"/></svg></div>
+        </div>
+      </div>
       <div class="card-actions">
         <button class="btn btn-eval" @click="evalNow(c.name)" :disabled="evaluating===c.name">
           <span x-text="evaluating===c.name ? 'Evaluating...' : 'Evaluate Now'"></span>
@@ -108,10 +165,54 @@ nav a.active, nav a:hover { color:var(--text); background:var(--surface2); }
   </template>
 </div>
 
+<!-- Container Detail Drawer -->
+<template x-if="detailContainer">
+  <div>
+    <div class="detail-overlay" @click="closeDetail()"></div>
+    <div class="detail-drawer">
+      <button class="close-btn" @click.stop="closeDetail()">&times;</button>
+      <h2 x-text="detailContainer.name"></h2>
+      <div style="font-size:0.8rem;color:var(--text-dim);margin-bottom:0.5rem;" x-text="detailContainer.image || ''"></div>
+
+      <div class="range-selector">
+        <button class="range-btn" :class="detailRange==='1h' && 'active'" @click.stop="loadDetailStats('1h')">1h</button>
+        <button class="range-btn" :class="detailRange==='24h' && 'active'" @click.stop="loadDetailStats('24h')">24h</button>
+        <button class="range-btn" :class="detailRange==='7d' && 'active'" @click.stop="loadDetailStats('7d')">7d</button>
+        <button class="range-btn" :class="detailRange==='30d' && 'active'" @click.stop="loadDetailStats('30d')">30d</button>
+      </div>
+
+      <h3 style="font-size:0.9rem;margin:0.5rem 0;">CPU Usage</h3>
+      <div class="chart-container"><canvas id="cpuChart"></canvas></div>
+
+      <h3 style="font-size:0.9rem;margin:0.5rem 0;">Memory Usage</h3>
+      <div class="chart-container"><canvas id="memChart"></canvas></div>
+
+      <h3 style="font-size:0.9rem;margin:0.5rem 0;">Network I/O</h3>
+      <div class="chart-container"><canvas id="netChart"></canvas></div>
+
+      <template x-if="detailContainer.last_evaluation">
+        <div style="margin-top:1rem;padding:1rem;background:var(--surface);border-radius:8px;">
+          <h3 style="font-size:0.9rem;margin:0 0 0.5rem;">Latest Evaluation</h3>
+          <div style="font-size:0.8rem;line-height:1.6;">
+            <div>Status: <strong x-text="detailContainer.last_evaluation.ai_status"></strong></div>
+            <div>Score: <strong x-text="detailContainer.last_evaluation.health_score + '/100'"></strong></div>
+            <div>Summary: <span x-text="detailContainer.last_evaluation.summary"></span></div>
+          </div>
+        </div>
+      </template>
+    </div>
+  </div>
+</template>
+
 <script>
 function dashboard() {
   return {
     containers: [],
+    detailContainer: null,
+    detailRange: '1h',
+    detailCharts: {},
+    statsCache: {},
+    fleetData: null,
     config: null,
     loading: true,
     evaluating: null,
@@ -127,6 +228,8 @@ function dashboard() {
       try {
         const r = await fetch('/api/containers');
         this.containers = await r.json();
+        this.loadSparklines();
+        this.loadFleet();
       } catch(e) { console.error('Failed to fetch containers', e); }
     },
 
@@ -168,6 +271,103 @@ function dashboard() {
       if (s === 'unhealthy') return 'dot-orange';
       if (s === 'critical') return 'dot-red';
       return 'dot-gray';
+    },
+
+
+
+    async loadFleet() {
+      try {
+        const r = await fetch('/api/stats/fleet?range=1h');
+        if (!r.ok) return;
+        const d = await r.json();
+        this.fleetData = d.current;
+      } catch(e) { /* silent */ }
+    },
+
+    formatMB(mb) {
+      if (mb >= 1024) return (mb / 1024).toFixed(1) + ' GB';
+      return Math.round(mb) + ' MB';
+    },
+
+    // ── Sparklines ──
+    sparkLine(vals) {
+      if (!vals || vals.length < 2) return '';
+      const max = Math.max(...vals, 1);
+      const step = 100 / (vals.length - 1);
+      return 'M' + vals.map((v, i) => `${(i * step).toFixed(1)},${(24 - (v / max) * 22).toFixed(1)}`).join('L');
+    },
+    sparkArea(vals) {
+      if (!vals || vals.length < 2) return '';
+      const max = Math.max(...vals, 1);
+      const step = 100 / (vals.length - 1);
+      const line = vals.map((v, i) => `${(i * step).toFixed(1)},${(24 - (v / max) * 22).toFixed(1)}`).join('L');
+      return `M0,24L${line}L100,24Z`;
+    },
+
+    async loadSparklines() {
+      for (const c of this.containers) {
+        try {
+          const r = await fetch(`/api/containers/${encodeURIComponent(c.name)}/stats?range=1h`);
+          if (!r.ok) continue;
+          const d = await r.json();
+          const cpuVals = d.data.map(p => p.cpu || 0);
+          const memVals = d.data.map(p => p.mem || 0);
+          const last = d.data[d.data.length - 1];
+          c._spark = {
+            cpu: cpuVals, mem: memVals,
+            cpu_now: last ? (last.cpu != null ? last.cpu + '%' : '-') : '-',
+            mem_now: last ? (last.mem != null ? last.mem + '%' : '-') : '-',
+          };
+        } catch(e) { /* silent */ }
+      }
+    },
+
+    // ── Detail Drawer ──
+    async openDetail(c) {
+      this.detailContainer = c;
+      this.detailRange = '1h';
+      await this.$nextTick();
+      this.loadDetailStats('1h');
+    },
+    closeDetail() { this.detailContainer = null; this.destroyCharts(); },
+
+    destroyCharts() {
+      for (const k in this.detailCharts) { this.detailCharts[k].destroy(); }
+      this.detailCharts = {};
+    },
+
+    async loadDetailStats(range) {
+      this.detailRange = range;
+      if (!this.detailContainer) return;
+      try {
+        const r = await fetch(`/api/containers/${encodeURIComponent(this.detailContainer.name)}/stats?range=${range}`);
+        if (!r.ok) return;
+        const d = await r.json();
+        this.renderCharts(d.data);
+      } catch(e) { console.error(e); }
+    },
+
+    renderCharts(data) {
+      this.destroyCharts();
+      const labels = data.map(p => p.t.substring(11, 16));
+      const chartOpts = (label, color, values) => ({
+        type: 'line',
+        data: { labels, datasets: [{ label, data: values, borderColor: color, backgroundColor: color + '22', fill: true, pointRadius: 0, tension: 0.3, borderWidth: 1.5 }] },
+        options: { responsive: true, maintainAspectRatio: false, scales: { x: { display: true, ticks: { maxTicksLimit: 8, font: { size: 10 }, color: '#888' }, grid: { display: false } }, y: { beginAtZero: true, ticks: { font: { size: 10 }, color: '#888' }, grid: { color: '#333' } } }, plugins: { legend: { display: false } }, animation: false }
+      });
+      const cpuEl = document.getElementById('cpuChart');
+      const memEl = document.getElementById('memChart');
+      const netEl = document.getElementById('netChart');
+      if (cpuEl) this.detailCharts.cpu = new Chart(cpuEl, chartOpts('CPU %', '#3b82f6', data.map(p => p.cpu)));
+      if (memEl) this.detailCharts.mem = new Chart(memEl, chartOpts('RAM %', '#8b5cf6', data.map(p => p.mem)));
+      if (netEl) this.detailCharts.net = new Chart(netEl, {
+        type: 'line',
+        data: { labels, datasets: [
+          { label: 'RX', data: data.map(p => p.rx ? Math.round(p.rx/1024) : 0), borderColor: '#22c55e', pointRadius: 0, tension: 0.3, borderWidth: 1.5, fill: false },
+          { label: 'TX', data: data.map(p => p.tx ? Math.round(p.tx/1024) : 0), borderColor: '#f59e0b', pointRadius: 0, tension: 0.3, borderWidth: 1.5, fill: false },
+        ] },
+        options: { responsive: true, maintainAspectRatio: false, scales: { x: { ticks: { maxTicksLimit: 8, font: { size: 10 }, color: '#888' }, grid: { display: false } }, y: { beginAtZero: true, ticks: { font: { size: 10 }, color: '#888', callback: v => v + ' KB' }, grid: { color: '#333' } } }, plugins: { legend: { labels: { color: '#888', font: { size: 10 } } } }, animation: false }
+      });
     },
 
     scoreClass(score) {
