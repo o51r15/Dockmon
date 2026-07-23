@@ -153,7 +153,7 @@ async def generate_digest(cfg: DockmonConfig, conn: sqlite3.Connection) -> dict[
         "system": system_prompt,
         "stream": False,
         "format": "json",
-        "options": {"temperature": 0.2, "num_predict": 2048, "think": False},
+        "options": {"temperature": 0.2, "num_predict": 4096, "think": False},
     }
 
     try:
