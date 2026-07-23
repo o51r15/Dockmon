@@ -79,7 +79,7 @@ Renamed across 32 files — Python package dir, imports, Docker image, CI/CD, co
 #### 6.1 Persisted Notifications ✅ DONE (Session 3, commit `6bee8b0`)
 Added `alert_urls` table to SQLite. PUT /api/alerts saves to DB, GET reads from DB. Startup merges DB URLs with config.yaml URLs. Tested: add URL → restart container → URL persists.
 
-#### 6.2 Docker Compose Dependency Awareness ⬅️ START HERE
+#### 6.2 Docker Compose Dependency Awareness ✅ DONE (Session 5)
 Restarting `gluetun` breaks network routing for `qbittorrent` unless both are restarted in the correct order. Rather than waiting for the AI to flag dependent containers as unhealthy minutes later, Dockmon should execute coordinated restarts automatically.
 
 **Config approach:** Use an explicit `dependency_groups` block rather than Docker Compose labels, since users often link containers across different compose files:
@@ -165,7 +165,7 @@ Add explicit correlation rules to `v5_evaluate.txt`:
 
 ### Phase 8 — Intelligent Evaluation: From Data Deletion to Context Injection
 
-**Status:** 8.1-8.3 COMPLETE (Session 4), 8.4-8.5 NOT STARTED
+**Status:** 8.1-8.4 COMPLETE (Sessions 4-5), 8.5 NOT STARTED
 **Objective:** Transition from relying on `ignore_patterns` (which blindfold the AI) to teaching the AI what it's looking at. Three architectural methods work together to eliminate false positives while preserving the AI's ability to detect real problems.
 
 **Core principle:** Never delete data from the AI's view. Instead, add context so it understands what "normal" looks like for each specific container.
@@ -273,7 +273,7 @@ containers:
 - The tagged lines flow through `to_prompt()` into the error patterns and recent tail sections — the AI sees both the raw event and the human-provided context
 - Tags also influence the `ErrorPattern.context` field, replacing the generic "During shutdown sequence" with the user's specific annotation
 
-#### 8.4 Prompt Storage & Management UI
+#### 8.4 Prompt Storage & Management UI ✅ DONE (Session 5)
 
 Once container-specific prompts are working from config, move them into the database for live editing without container restarts.
 
@@ -294,7 +294,7 @@ Instead of requiring manual `context_prompt` configuration, detect common worklo
 
 ---
 
-### Phase 9 — Model Validation & Hardware-Aware Scheduling
+### Phase 9 — Model Validation & Hardware-Aware Scheduling ⬅️ START HERE
 
 **Status:** NOT STARTED
 **Objective:** Eliminate guesswork from model selection and poll interval configuration. The settings page should validate that a model actually works before allowing it, benchmark its speed on the user's hardware, and calculate a safe poll interval automatically.

@@ -1,9 +1,9 @@
 # DockLlama — Developer Log & Handoff
 
-**Last updated:** July 23, 2026 (end of Session 4)
+**Last updated:** July 23, 2026 (end of Session 5)
 **Repository:** https://github.com/o51r15/DockLlama (renamed from DockLlama)
 **Status:** Running in dry-run mode as Docker container, monitoring 15 production containers
-**Latest commit:** `257dbb4` — Add routine counts to severity display
+**Latest commit:** `cbd8456` — Restructure nav: Dashboard, Insights (sidebar), Settings (sidebar)
 
 ## FIRST TASK: Complete Rename ✅ DONE (Session 4)
 Renamed dockmon → dockllama across 32 files including Python package dir, imports, Docker image, CI/CD, compose, all user-facing strings.
@@ -131,10 +131,12 @@ dockmon/
 │       ├── routes.py        # FastAPI REST endpoints (containers, logs, evaluate, events, alerts, digests, config, health)
 │       └── events.py        # SSE event stream (publish/subscribe)
 ├── frontend/
-│   ├── index.html           # Dashboard (container cards, trends, events)
-│   ├── explorer.html        # Log explorer (raw + filtered logs, on-demand eval)
-│   ├── settings.html        # Notifications management
-│   └── digest.html          # Digest viewer (date picker, on-demand generation)
+│   ├── index.html           # Dashboard (container health grid only)
+│   ├── insights.html        # Insights hub (sidebar: Health Trends, Recent Events, Log Explorer, Digest)
+│   ├── settings.html        # Settings hub (sidebar: Notifications, Prompts)
+│   ├── explorer.html        # Redirect → /insights.html?view=explorer
+│   ├── digest.html          # Redirect → /insights.html?view=digest
+│   └── prompts.html         # Redirect → /settings.html?view=prompts
 ├── config.yaml              # LOCAL config (gitignored) — 15 containers, real settings
 ├── config.example.yaml      # Generic template (in git)
 ├── Dockerfile
@@ -185,7 +187,7 @@ main.py: _process_container()
 
 ## Configuration
 
-**config.yaml** (gitignored, on server): 15 containers, `poll_interval_seconds: 900`, `timeout_seconds: 300`, `base_url: "http://192.168.1.125:11434"`, `default_model: "llama3.1:8b"` (was briefly qwen2.5:7b-instruct, reverted), `digest_model: "gemma4:latest"`, `dry_run: true`.
+**config.yaml** (gitignored, on server): 15 containers, `poll_interval_seconds: 900`, `timeout_seconds: 300`, `base_url: "http://192.168.1.125:11434"`, `default_model: "llama3.1:8b"` (was briefly qwen2.5:7b-instruct, reverted) (was briefly qwen2.5:7b-instruct, reverted), `digest_model: "gemma4:latest"`, `dry_run: true`.
 
 **Monitored containers (15):** gluetun, bitmagnet, bitmagnet-postgres, qbittorrent, kometa, audiobookshelf, pinchfork, pinchfork-db, jellyfin, karakeep, karakeep_chrome, karakeep_meilisearch, memos, tautulli, seerr
 
@@ -211,6 +213,9 @@ digests (id, date, generated_at, overall_health, headline,
          digest_json, formatted_text)
 
 alert_urls (id, url UNIQUE, added_at)
+
+container_prompts (container TEXT PK, context_prompt TEXT, examples TEXT,
+                   known_patterns TEXT, updated_at TEXT)
 ```
 
 ---
@@ -234,6 +239,10 @@ alert_urls (id, url UNIQUE, added_at)
 | GET | /api/digests | List stored digests |
 | GET | /api/digests/latest | Most recent digest |
 | GET | /api/digests/{date} | Digest by date (YYYY-MM-DD) |
+| GET | /api/containers/{name}/prompt | Get effective prompt config (DB + config fallback) |
+| PUT | /api/containers/{name}/prompt | Save prompt config to DB |
+| DELETE | /api/containers/{name}/prompt | Revert to config.yaml defaults |
+| POST | /api/containers/{name}/test-prompt | Test prompt against current logs without saving |
 
 ---
 
@@ -298,6 +307,24 @@ Built v5 structured preprocessor (biggest quality improvement). Switched to llam
 Auto-healthy fast path. Expanded Chrome ignore patterns. Settings page + Digest viewer. Fixed digest generation (num_predict too low for 15 containers + robust JSON extraction). Persisted notification URLs in SQLite. Updated roadmap with Phases 7–11 including detailed telemetry and context injection plans.
 
 Key commits this session: `d3b4c52` (auto-healthy, digest fix, settings/digest pages), `fce7554` (digest num_predict bump), `6bee8b0` (alert URL persistence fix).
+### Session 4 — Telemetry, Context Injection & Model Tuning (July 23, 2026)
+
+**Rename:** Completed dockmon → dockllama across 32 files (package dir, imports, Docker, CI/CD, compose, strings).
+
+**Phase 7 (Telemetry):** Added `get_container_stats()` to docker_client.py using Docker stats API with delta CPU calculation. Added cpu_percent/mem_percent to LogSummary dataclass and to_prompt() output. Added resource correlation rules to v5_evaluate.txt. All 15 containers now report CPU/RAM metrics.
+
+**Phase 8.1-8.3 (Context Injection):** Added context_prompt, examples, and known_patterns fields to ContainerConfig. context_prompt injects container-specific knowledge into the system prompt. Few-shot examples provide calibration scenarios. known_patterns tag matching log lines with [ROUTINE:] metadata. Configured context for gluetun (port forwarding failures), bitmagnet-postgres (shutdown sequences), and karakeep_chrome (headless Chromium noise).
+
+**Base prompt improvements:** Added "What you are reading" section to v5_evaluate.txt explaining the full preprocessing pipeline (ignore_patterns, known_patterns, severity counting, context overrides). Added "Reading the severity line" section explaining routine counts.
+
+**Routine counts:** Added routine_counts tracking to log_analyzer.py — counts how many ERROR/WARN lines carry [ROUTINE:] tags and displays inline: `18 (18 routine) ERROR`.
+
+**Model switch:** Switched from qwen2.5:7b-instruct back to llama3.1:8b for better context-following.
+
+**Known bug:** karakeep_chrome scores 60 (DEGRADED) despite all errors being routine Chromium noise. See BUG_karakeep_chrome_scoring.md for full analysis and future fix ideas. Best candidate: reclassify routine-tagged lines as INFO in the preprocessor.
+
+Key commits: rename (32 files), Phase 7 metrics pipeline, Phase 8 context injection, preprocessing explanation in base prompt, routine counts in severity display.
+
 ### Session 4 — Telemetry, Context Injection & Model Tuning (July 23, 2026)
 
 **Rename:** Completed dockmon → dockllama across 32 files (package dir, imports, Docker, CI/CD, compose, strings).
