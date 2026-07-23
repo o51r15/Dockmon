@@ -1,0 +1,317 @@
+# Dockmon — Developer Log & Handoff
+
+**Last updated:** July 23, 2026 (end of Session 3)
+**Repository:** https://github.com/o51r15/Dockmon
+**Status:** Running in dry-run mode as Docker container (`ghcr.io/o51r15/dockmon:dev`), monitoring 15 production containers
+**Latest commit:** `6bee8b0` — Fix: load persisted alert URLs before closing DB connection
+
+---
+
+## Quick Start for New Chat Sessions
+
+When the user says **"lets start the roadmap"**:
+
+1. Read `roadmap.md` (in the same directory as this file)
+2. Find the phase marked **⬅️ START HERE**
+3. Work through it sub-phase by sub-phase using the workflow below
+4. After completing a phase, move the **⬅️ START HERE** marker to the next phase
+
+**Development workflow for EVERY change — no exceptions:**
+
+1. **Inspect** — Read the source files you're about to modify. Understand what exists.
+2. **Build** — Write the code change. For complex edits, write a Python patch script, pscp it to `/tmp/` on the server, execute remotely.
+3. **Review** — Syntax check with `ast.parse()`. Read the modified file back. Verify the diff is what you intended.
+4. **Test** — Commit, push, rebuild container, restart, check logs, hit the API, verify the change works end-to-end.
+5. **Review** — Confirm test results. Check for regressions. Fix before moving on.
+6. **Move to next** — Update the roadmap status, then start the next sub-phase.
+
+**One sub-phase = one commit = one test cycle.** Do NOT batch multiple sub-phases.
+
+---
+
+## What Is Dockmon
+
+Dockmon is an AI-driven Docker container health monitoring system. It polls container logs, runs them through a structured Python preprocessor, sends summaries to a local LLM (Ollama), and takes action (restart, alert, or dry-run log) based on the AI's health assessment. It has a web dashboard, daily digest reports, and Apprise-based notifications.
+
+**Stack:** Python 3.14, FastAPI, Alpine.js, SQLite (WAL), Ollama (llama3.1:8b)
+
+---
+
+## Infrastructure
+
+| Component | Location | Details |
+|-----------|----------|---------|
+| **Dockmon code** | `/home/o51r15/scripts/dockmon/` on Optiplex server | Python 3.14, runs as Docker container |
+| **Optiplex server** | `192.168.1.192` | Runs Docker containers + Dockmon |
+| **GPU server** | `192.168.1.125` | Runs Ollama (LLM inference) |
+| **Ollama API** | `http://192.168.1.125:11434` | llama3.1:8b (eval), gemma4:latest (digest) |
+| **Dockmon Web UI** | `http://192.168.1.192:8556` | FastAPI + static HTML |
+| **GitHub repo** | `ghcr.io/o51r15/dockmon` | Docker images via GitHub Actions |
+| **SSH access** | PuTTY (plink/pscp) via Desktop Commander MCP | **NEVER use bash sandbox for SSH** |
+
+### SSH Commands (CRITICAL)
+
+The `mcp__workspace__bash` tool runs in an isolated Linux sandbox — it CANNOT reach the server. All server operations MUST use Desktop Commander MCP tools (load via ToolSearch: `select:mcp__Desktop_Commander__start_process`):
+
+```
+# Run command on server
+C:\PROGRA~1\PuTTY\plink.exe -batch -i C:\Users\o51r15\.ssh\id_ed25519.ppk o51r15@192.168.1.192 "<command>"
+
+# Copy file TO server
+C:\PROGRA~1\PuTTY\pscp.exe -batch -i C:\Users\o51r15\.ssh\id_ed25519.ppk <local_file> o51r15@192.168.1.192:<remote_path>
+
+# Copy file FROM server
+C:\PROGRA~1\PuTTY\pscp.exe -batch -i C:\Users\o51r15\.ssh\id_ed25519.ppk o51r15@192.168.1.192:<remote_path> <local_file>
+```
+
+**PowerShell gotcha:** Special characters (`$`, single quotes inside double quotes, Python one-liners) get mangled by PowerShell. For complex commands, write a Python script locally, pscp it to `/tmp/` on the server, then execute it remotely with `python3 /tmp/script.py`.
+
+### Docker Container Management
+
+```bash
+# Full rebuild and restart cycle (run on server via plink)
+cd /home/o51r15/scripts/dockmon
+docker build -t ghcr.io/o51r15/dockmon:dev .
+docker stop dockmon && docker rm dockmon
+docker run -d --name dockmon --restart unless-stopped \
+  -p 8556:8556 \
+  -v /var/run/docker.sock:/var/run/docker.sock:ro \
+  -v /home/o51r15/scripts/dockmon/config.yaml:/app/config/config.yaml:ro \
+  -v dockmon-data:/app/data \
+  -e TZ=America/New_York \
+  ghcr.io/o51r15/dockmon:dev
+
+# Check logs
+docker logs dockmon --tail 20
+
+# Alternative: run from host (for debugging only)
+cd ~/scripts/dockmon && nohup python3 -m dockmon config.yaml > /tmp/dockmon.log 2>&1 &
+fuser -k 8556/tcp  # to stop host mode
+```
+
+### Git Workflow
+
+All git operations run from `/home/o51r15/scripts/dockmon/` on the server:
+
+```bash
+git add <files>
+git commit -m "descriptive message"
+git push origin main
+```
+
+**config.yaml is gitignored.** Never push it. `config.example.yaml` is the git template.
+
+---
+
+## Project Structure
+
+```
+dockmon/
+├── dockmon/
+│   ├── __init__.py
+│   ├── __main__.py          # Entry point (calls main.main())
+│   ├── main.py              # Monitor loop, web server, digest scheduler, startup checks
+│   ├── config.py            # Pydantic config schema + YAML loader
+│   ├── db.py                # SQLite schema (events, cooldowns, baselines, digests, alert_urls)
+│   ├── docker_client.py     # Docker SDK wrapper (get_client, get_logs, list_containers)
+│   ├── log_pipeline.py      # Legacy pre-filter (ANSI strip, level detect, ignore patterns)
+│   ├── log_analyzer.py      # v5 structured preprocessor (LogSummary with .to_prompt())
+│   ├── ai_engine.py         # Ollama LLM evaluation (EvaluationContext → EvaluationResult)
+│   ├── actions.py           # Restart/dry-run logic + cooldown system + compose group restarts
+│   ├── alerts.py            # Apprise notification layer + DB persistence (load_alert_urls, save_alert_urls)
+│   ├── digest.py            # Daily digest generation (gemma4) + DB storage
+│   ├── trends.py            # 7d/30d health trend calculations
+│   ├── prompts/
+│   │   ├── v5_evaluate.txt  # Current eval prompt (structured input from log_analyzer)
+│   │   └── v1_digest.txt    # Digest summary prompt
+│   └── api/
+│       ├── routes.py        # FastAPI REST endpoints (containers, logs, evaluate, events, alerts, digests, config, health)
+│       └── events.py        # SSE event stream (publish/subscribe)
+├── frontend/
+│   ├── index.html           # Dashboard (container cards, trends, events)
+│   ├── explorer.html        # Log explorer (raw + filtered logs, on-demand eval)
+│   ├── settings.html        # Notifications management
+│   └── digest.html          # Digest viewer (date picker, on-demand generation)
+├── config.yaml              # LOCAL config (gitignored) — 15 containers, real settings
+├── config.example.yaml      # Generic template (in git)
+├── Dockerfile
+├── docker-compose.yml
+├── requirements.txt
+├── .github/workflows/docker-publish.yml
+└── .gitignore
+```
+
+---
+
+## Evaluation Pipeline (How It Works)
+
+Understanding this pipeline is critical for implementing Phases 7 and 8:
+
+```
+Raw Docker logs (200 lines)
+    ↓
+log_analyzer.py: analyze_logs()
+    → Strips ANSI, Docker timestamps
+    → Applies ignore_patterns (regex filter)
+    → Counts severities (INFO/WARN/ERROR)
+    → Detects restart sequences (shutdown → startup)
+    → Deduplicates error messages with counts
+    → Detects recovery (errors followed by clean lines)
+    → Extracts recent tail (last 25 unfiltered lines)
+    → Returns LogSummary with .to_prompt()
+    ↓
+ai_engine.py: evaluate()
+    → Builds system prompt from v5_evaluate.txt
+    → User prompt = LogSummary.to_prompt() output
+    → Sends to Ollama (llama3.1:8b, format=json)
+    → Parses EvaluationResult (status, health_score, confidence, etc.)
+    ↓
+main.py: _process_container()
+    → Logs result
+    → Stores in SQLite events table
+    → Publishes via SSE
+    → Executes action (restart/dry-run/none) based on result
+    → Sends Apprise alerts
+```
+
+**Key files for Phase 7 (telemetry):** `docker_client.py` (add stats fetching), `log_analyzer.py` (add metrics to LogSummary), `v5_evaluate.txt` (add correlation rules)
+
+**Key files for Phase 8 (context injection):** `config.py` (add context_prompt/examples/known_patterns to ContainerConfig), `ai_engine.py` (append context to system prompt), `log_analyzer.py` (metadata tagging), `main.py` (pass new fields through)
+
+---
+
+## Configuration
+
+**config.yaml** (gitignored, on server): 15 containers, `poll_interval_seconds: 900`, `timeout_seconds: 300`, `base_url: "http://192.168.1.125:11434"`, `default_model: "llama3.1:8b"`, `digest_model: "gemma4:latest"`, `dry_run: true`.
+
+**Monitored containers (15):** gluetun, bitmagnet, bitmagnet-postgres, qbittorrent, kometa, audiobookshelf, pinchfork, pinchfork-db, jellyfin, karakeep, karakeep_chrome, karakeep_meilisearch, memos, tautulli, seerr
+
+**Compose groups** (restart together): bitmagnet (bitmagnet + bitmagnet-postgres), pinchfork (pinchfork + pinchfork-db), karakeep (karakeep + karakeep_chrome + karakeep_meilisearch)
+
+**Docker volume:** `dockmon-data:/app/data` persists the SQLite DB across container restarts.
+
+---
+
+## Database Schema
+
+```sql
+events (id, container, timestamp, event_type, ai_status, confidence,
+        root_cause_category, summary, action_taken, log_snapshot,
+        prompt_version, model_used, health_score)
+
+cooldowns (container PK, last_restart, consecutive_restarts,
+           current_cooldown_minutes, alert_only_mode)
+
+baselines (container PK, healthy_log_sample, captured_at)
+
+digests (id, date, generated_at, overall_health, headline,
+         digest_json, formatted_text)
+
+alert_urls (id, url UNIQUE, added_at)
+```
+
+---
+
+## API Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | /api/containers | List all monitored containers + latest eval |
+| GET | /api/containers/{name}/logs | Fetch container logs (raw + filtered) |
+| POST | /api/containers/{name}/evaluate | On-demand AI evaluation |
+| GET | /api/events | Paginated event history |
+| GET | /api/events/{container}/restarts | Restart history for a container |
+| GET | /api/trends | 7d/30d health trends |
+| GET | /api/config | Current running config (sanitized) |
+| GET | /api/health | System health check (Docker, Ollama, DB) |
+| POST | /api/digest | Trigger on-demand digest |
+| GET | /api/alerts | Get alert URLs (from DB) |
+| PUT | /api/alerts | Update alert URLs (persisted to DB) |
+| POST | /api/alerts/test | Send test notification |
+| GET | /api/digests | List stored digests |
+| GET | /api/digests/latest | Most recent digest |
+| GET | /api/digests/{date} | Digest by date (YYYY-MM-DD) |
+
+---
+
+## Key Architecture Decisions
+
+### v5 Structured Preprocessor Pipeline
+
+The biggest architectural win. Instead of dumping raw filtered logs to the LLM:
+
+1. `log_analyzer.py` does all mechanical analysis in Python: timestamp parsing, severity counting, error deduplication, recovery detection, restart detection
+2. Produces a `LogSummary` object with `.to_prompt()` method
+3. LLM receives a structured summary (~20 lines) instead of raw logs (~200 lines)
+4. Result: even 3B models get correct health assessments; 8B model is the sweet spot
+
+### Auto-Healthy Fast Path
+
+When ALL log lines match ignore patterns → `total_lines == 0` → skip LLM entirely → return synthetic healthy result (score=95). Prevents hallucination on empty input and saves compute.
+
+### Model Selection
+
+| Model | Size | Time | Use |
+|-------|------|------|-----|
+| llama3.1:8b | 4.7GB | ~11s | **Default** eval model |
+| gemma4:latest | — | ~15s | Digest summaries (num_predict=4096) |
+
+### Cold Model Problem
+
+With poll intervals > 5 minutes, Ollama unloads the model from GPU. First eval hits cold model load (~30-40s). Fix: `timeout_seconds: 300` in config.
+
+---
+
+## Prompt Engineering History
+
+Five versions, each fixing failure modes discovered live:
+
+- **v1:** Basic 3-tier (healthy/unhealthy/critical). No root cause or restart reasoning.
+- **v2:** Added error origin tracking, root cause categories, restart reasoning. Cut false restarts.
+- **v3:** Shifted from "are there errors?" to "is the container doing its job?" PostgreSQL FATAL during planned shutdown = healthy.
+- **v4:** Added "degraded" tier and 0–100 numeric score. Recency awareness with numbered log lines.
+- **v5 (current):** Python preprocessor handles mechanical analysis; LLM only interprets structured summary. Fixed the fundamental pipeline flaw where filtered INFO lines removed recovery evidence.
+
+---
+
+## CI/CD
+
+`.github/workflows/docker-publish.yml`: push to main → `ghcr.io/o51r15/dockmon:dev`, GitHub Release → `:latest` + semver. Currently running `:dev` built locally (GHCR pull had timeout issues).
+
+---
+
+## Development Timeline
+
+### Session 1 — Initial Build (July 17–18, 2026)
+
+Built entire project from scratch. Phases 0–5: scaffolding → log pipeline/AI engine → actions/cooldowns/alerts → FastAPI/SSE/dashboard → digest/scheduler → hardening. 8 containers. Prompt evolution v1–v4. Discovered the recency problem.
+
+### Session 2 — Preprocessor & Scale (July 18, 2026)
+
+Built v5 structured preprocessor (biggest quality improvement). Switched to llama3.1:8b. Added GitHub Actions CI/CD. Expanded to 15 containers. Separated config.
+
+### Session 3 — Features & Fixes (July 19–23, 2026)
+
+Auto-healthy fast path. Expanded Chrome ignore patterns. Settings page + Digest viewer. Fixed digest generation (num_predict too low for 15 containers + robust JSON extraction). Persisted notification URLs in SQLite. Updated roadmap with Phases 7–11 including detailed telemetry and context injection plans.
+
+Key commits this session: `d3b4c52` (auto-healthy, digest fix, settings/digest pages), `fce7554` (digest num_predict bump), `6bee8b0` (alert URL persistence fix).
+
+---
+
+## Lessons Learned
+
+- **Never send empty data to an LLM.** If nothing to evaluate, use auto-healthy fast path.
+- **Filter Chrome by source filename, not message text.** Source filenames are stable across versions.
+- **Make every LLM JSON field optional with defaults.** llama3.1:8b occasionally omits fields.
+- **Set num_predict high enough for output size.** gemma4 digest for 15 containers needs ~3000 tokens.
+- **Account for cold model load time.** Set timeout_seconds: 300.
+- **PowerShell mangles special chars.** Write Python scripts, pscp to server, execute remotely.
+- **Separate local config from git.** config.yaml is gitignored.
+
+---
+
+## Known Issues
+
+1. **karakeep_chrome** occasionally shows "degraded" — Chrome versions may produce new noise lines. Phase 8.3 (metadata tagging) will address this more robustly than adding more ignore patterns.
+2. **Docker image tag mismatch** — docker-compose.yml references `:latest` but active container runs `:dev`. Next GitHub Release will sync.
+3. **Docker volume vs host DB** — container uses `dockmon-data:/app/data`. Host path `/home/o51r15/scripts/dockmon/data/dockmon.db` is separate. Don't confuse them.

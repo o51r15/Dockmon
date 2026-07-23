@@ -1,148 +1,323 @@
 # Dockmon Roadmap
 
-## Completed
+## How To Use This Roadmap
 
-### Phase 0 -- Project Scaffolding
+When the user says "lets start the roadmap," find the phase marked **⬅️ START HERE** and begin working on it sub-phase by sub-phase. Follow this workflow for EVERY change:
+
+1. **Inspect** — Read the current source files involved. Understand what exists before touching anything.
+2. **Build** — Write the code change. Use Python patch scripts (pscp to `/tmp/`, execute remotely) for complex edits.
+3. **Review** — Syntax check (`ast.parse()`), read the modified file back, verify the diff is correct.
+4. **Test** — Commit, push, rebuild container (`docker build -t ghcr.io/o51r15/dockmon:dev .`), restart, check logs, hit the API, verify the change works end-to-end.
+5. **Review** — Confirm test results. Check for regressions. If something broke, fix it before moving on.
+6. **Move to next** — Mark the sub-phase done in this file, then start the next one.
+
+Do NOT batch multiple sub-phases into one commit. One sub-phase = one commit = one test cycle.
+
+---
+
+## Completed (Phases 0–5)
+
+### Phase 0 — Project Scaffolding
 - Project structure, config schema (Pydantic), Docker SDK connection, SQLite WAL-mode DB, Dockerfile, docker-compose.yml
 
-### Phase 1 -- Log Ingestion & AI Evaluation
+### Phase 1 — Log Ingestion & AI Evaluation
 - Log pre-filter pipeline (ANSI strip, Docker timestamp strip, level detection, ignore patterns)
 - AI evaluation engine (Ollama /api/generate with structured JSON)
-- Versioned prompt templates (prompts/v1_evaluate.txt)
+- Versioned prompt templates (v1 through v5)
 - Monitor loop with baseline capture
 
-### Phase 2 -- Actions, Cooldowns & Alerts
+### Phase 2 — Actions, Cooldowns & Alerts
 - Restart engine with dry-run mode (default)
-- Exponential backoff cooldowns (5m -> 15m -> 45m -> 120m cap)
+- Exponential backoff cooldowns (5m → 15m → 45m → 120m cap)
 - Boot-loop breaker (alert-only mode after max_restarts_per_hour)
 - Apprise notification layer (restart, dry-run, escalation, cooldown, error alerts)
 - Pre-restart log snapshot storage
 
-### Phase 3 -- Web Interface
+### Phase 3 — Web Interface
 - FastAPI REST API (containers, logs, evaluate, events, config, health)
 - SSE event stream for live dashboard updates
 - Dashboard with container status grid, live evaluation results
 - Log explorer with raw/filtered toggle, on-demand AI eval, restart history
 
-### Phase 4 -- Daily Digest
+### Phase 4 — Daily Digest
 - Digest engine querying 24h of events per container
-- LLM-generated summary with fleet health score, trends, recommendations
+- LLM-generated summary (gemma4) with fleet health, trends, recommendations
 - Cron-based scheduler with configurable time
 - On-demand digest via POST /api/digest
+- Digest storage in DB with historical retrieval API
+- Digest viewer page with date picker
 
-### Phase 5 -- Hardening
+### Phase 5 — Hardening & Scale
 - Per-container error isolation (one failure does not stop the cycle)
 - Ollama connectivity check at startup
-- Updated Dockerfile/docker-compose for port 8556
-- Updated README with full feature list, config reference, API docs
+- v5 structured preprocessor (Python handles mechanical analysis, LLM interprets)
+- Auto-healthy fast path (skip LLM when all logs match ignore patterns)
+- Robust digest JSON parsing with `_extract_json()` fallback
+- Expanded from 8 to 15 containers
+- GitHub Actions CI/CD (push → :dev, release → :latest + semver)
+- Separated local config from git template
+- Settings page (Apprise notification management)
+- Compose group-aware restarts
+- Trend engine (7d/30d stats with period-over-period comparison)
+- DB maintenance (auto-prune events older than retention_days)
 
-## Next Major Feature: Learning Mode
+---
 
-The core problem with generic AI healthchecks is that every container has its own definition of "normal." Gluetun logging port forwarding errors might be a critical failure or routine noise depending on the user's setup. The AI can't know without being taught.
+## Upcoming
 
-Learning Mode lets Dockmon observe containers passively, surface patterns it thinks might be problems, and learn from user feedback what actually matters for each container.
+**Recommended execution order across phases:** Phase 7 (telemetry, read-only enrichment) → Phase 8.1–8.3 (context injection, prompt-level) → Phase 6.2 (dependency groups, touches restart logic) → Phase 8.4 (prompt UI) → Phase 9+ (longer-term).
 
-### How It Works
+### Phase 6 — Advanced Remediation & Alerting
 
-**1. Observation Phase**
+**Objective:** Move beyond simple restarts by making the system aware of stack dependencies and allowing custom recovery actions.
 
-When a container is set to `mode: learning`, Dockmon watches it normally but takes NO action and makes NO health judgment. Instead, it runs a different LLM prompt focused on pattern detection:
+#### 6.1 Persisted Notifications ✅ DONE (Session 3, commit `6bee8b0`)
+Added `alert_urls` table to SQLite. PUT /api/alerts saves to DB, GET reads from DB. Startup merges DB URLs with config.yaml URLs. Tested: add URL → restart container → URL persists.
 
-- Identify recurring log patterns (group similar lines by structure, not content)
-- Flag patterns that MIGHT indicate problems (errors, warnings, timeouts, connection failures)
-- Track frequency and timing of each pattern (constant? bursty? correlated with other events?)
-- Note patterns that appear during known-good operation vs. patterns that are new
+#### 6.2 Docker Compose Dependency Awareness
+Restarting `gluetun` breaks network routing for `qbittorrent` unless both are restarted in the correct order. Rather than waiting for the AI to flag dependent containers as unhealthy minutes later, Dockmon should execute coordinated restarts automatically.
 
-Each monitoring cycle produces a list of "candidate patterns" stored in a new DB table.
-
-**2. Pattern Presentation**
-
-The dashboard gets a Learning Mode view per container showing:
-
-- Detected patterns grouped by category (network errors, timeouts, process warnings, etc.)
-- Example log lines for each pattern
-- Frequency data (how often, when, trending up/down?)
-- The AI's initial guess: "This looks like it could be a problem because..." or "This looks normal because..."
-
-The user reviews each pattern and marks it:
-- **Problem** -- "Yes, this indicates a real failure. Flag this."
-- **Normal** -- "No, this is expected. Ignore this."
-- **Watch** -- "I'm not sure yet. Keep tracking it but don't act on it."
-
-**3. Rule Generation**
-
-User decisions become per-container rules stored in the DB:
+**Config approach:** Use an explicit `dependency_groups` block rather than Docker Compose labels, since users often link containers across different compose files:
 
 ```yaml
-# Auto-generated from learning mode feedback
-container_rules:
-  gluetun:
-    failure_patterns:
-      - pattern: "port forwarding.*connection refused"
-        severity: warning
-        description: "Port forwarding failed -- services behind VPN lose inbound connectivity"
-        learned_from: "user marked as problem on 2026-07-20"
-    normal_patterns:
-      - pattern: "Shutdown failed.*goroutine shutdown timed out"
-        description: "Normal during container restart"
-        learned_from: "user marked as normal on 2026-07-20"
-  bitmagnet:
-    normal_patterns:
-      - pattern: "search failed.*API returned status 400"
-        description: "Some indexers are frequently offline, this is expected"
-      - pattern: "context deadline exceeded.*prowlarr"
-        description: "Prowlarr indexer timeouts are transient and normal"
+# config.yaml addition
+dependency_groups:
+  vpn_stack:
+    - gluetun
+    - qbittorrent
+    - prowlarr
+  database_stack:
+    - pinchfork-db
+    - pinchfork
 ```
 
-**4. Graduated Promotion**
+**Implementation:**
+- Before restarting a container, cross-reference its name against `dependency_groups` in `actions.py`
+- If the container belongs to a group, restart all members in the order defined in the array
+- Log individual cooldown entries for every container restarted as part of a group to prevent cascading restart loops
+- Note: basic `compose_group` co-restarts already exist — this adds explicit ordering and cross-compose-file dependency awareness
 
-Once the user has reviewed enough patterns (configurable threshold, e.g. 10+ patterns marked), the container can be promoted from `learning` to `monitoring` mode. The learned rules are injected into the evaluation prompt as container-specific context:
+#### 6.3 Custom Remediation Scripts
+Expand the LLM schema beyond `recommended_action: "restart" | "none"`.
 
+- Allow `recommended_action: "script_name"` mapping to predefined bash scripts in a `/app/scripts/` volume
+- Enables clearing lock files, flushing caches, recreating containers rather than just restarting
+
+#### 6.4 Multi-Container Failure Correlation
+Detect containers failing within 60s of each other and surface correlated failures in the dashboard and digest.
+
+---
+
+### Phase 7 — Telemetry & Resource Correlation ⬅️ START HERE
+
+**Status:** NOT STARTED
+**Objective:** Enrich the LLM's context window by feeding it live CPU and memory metrics alongside log summaries. This is the most effective way to eliminate false positives — "OOM" logs are meaningless if the container has 8GB free RAM, but critical if it's pinned at 100%.
+
+**Why this goes first:** Telemetry is read-only enrichment with zero risk to existing behavior. Dependency groups (6.2) touch restart logic and should wait.
+
+#### 7.1 Metrics Pipeline
+Fetch stats via `container.stats(stream=False)` in `docker_client.py`. Docker's raw nanosecond counters require delta calculation:
+
+```python
+stats = container.stats(stream=False)
+
+# Memory
+mem_usage = stats['memory_stats']['usage']
+mem_limit = stats['memory_stats']['limit']
+mem_percent = (mem_usage / mem_limit) * 100.0
+
+# CPU (delta between current and previous reading)
+cpu_delta = (stats['cpu_stats']['cpu_usage']['total_usage']
+             - stats['precpu_stats']['cpu_usage']['total_usage'])
+system_delta = (stats['cpu_stats']['system_cpu_usage']
+                - stats['precpu_stats']['system_cpu_usage'])
+num_cpus = stats['cpu_stats'].get('online_cpus',
+           len(stats['cpu_stats']['cpu_usage'].get('percpu_usage', [1])))
+cpu_percent = (cpu_delta / system_delta) * num_cpus * 100.0
 ```
-## Container-Specific Rules (learned)
 
-The user has confirmed these patterns for this container:
-KNOWN PROBLEMS (flag as unhealthy):
-- "port forwarding.*connection refused" -- Port forwarding failure, causes inbound connectivity loss
-KNOWN NORMAL (ignore):
-- "goroutine shutdown timed out" -- Expected during restart
+- Log metrics to console first and verify they match `docker stats` CLI output before integrating
+
+#### 7.2 Preprocessor Integration
+- Add `cpu_percent` and `mem_percent` floats to the `LogSummary` dataclass in `log_analyzer.py`
+- Place metrics at the top of `.to_prompt()` output for maximum LLM attention:
+```
+Container: qbittorrent
+Time Window: 15 minutes
+Resource Usage: CPU 8.4% | RAM 42.1%
+Log Severities: 4 ERROR, 12 WARN
+Deduplicated Errors: ...
 ```
 
-This gives the LLM the domain knowledge it was missing, without requiring the user to write regex rules by hand.
+#### 7.3 Prompt Engineering Adjustments
+Add explicit correlation rules to `v5_evaluate.txt`:
+- "You are provided with current CPU and RAM usage percentages. Correlate these metrics with the log events."
+- "High RAM usage (>90%) alongside 'Out of Memory' or 'Killed' logs indicates a critical failure requiring a restart."
+- "High CPU usage (>95%) alongside 'Timeout' or 'Deadlock' logs indicates a hung process requiring a restart."
+- Run a manual evaluation against a noisy container to verify LLM confidence scores improve with the added context
 
-### Implementation Plan
+---
 
-**Phase L1 -- Pattern Detection Engine**
-- New LLM prompt: `v1_learn.txt` -- "Identify recurring patterns in these logs. For each pattern, describe what it looks like, how often it occurs, and whether you think it could indicate a problem."
-- New DB table: `learned_patterns (id, container, pattern_regex, pattern_description, example_lines, frequency, ai_assessment, user_verdict, created_at, updated_at)`
-- New DB table: `container_rules (id, container, rule_type, pattern, severity, description, source, created_at)`
-- Pattern deduplication logic -- cluster similar log lines into patterns using the LLM
-- Store pattern frequency and first/last seen timestamps
+### Phase 8 — Intelligent Evaluation: From Data Deletion to Context Injection
 
-**Phase L2 -- Learning Mode Dashboard**
+**Status:** NOT STARTED (do after Phase 7)
+**Objective:** Transition from relying on `ignore_patterns` (which blindfold the AI) to teaching the AI what it's looking at. Three architectural methods work together to eliminate false positives while preserving the AI's ability to detect real problems.
+
+**Core principle:** Never delete data from the AI's view. Instead, add context so it understands what "normal" looks like for each specific container.
+
+#### 8.1 Dynamic System Context (Container-Specific Prompts)
+
+When the evaluation pipeline detects a specific workload type (PostgreSQL, VPN, torrent client, media server), it appends a targeted knowledge block to `v5_evaluate.txt` before sending to the LLM. This block defines acceptable behaviors that would otherwise look like failures.
+
+**Config approach:** Add a `context_prompt` field to `ContainerConfig` in `config.yaml`:
+
+```yaml
+containers:
+  - name: "pinchfork-db"
+    enabled: true
+    context_prompt: |
+      This is a PostgreSQL database serving the Pinchfork application.
+      Rule 1 - Database Transaction Collisions: Log entries displaying
+      "deadlock detected" or "SQLSTATE 40P01" represent routine transaction
+      collisions during concurrent writes. The database intentionally
+      terminates one query to protect data integrity. This is a built-in
+      safety mechanism. Do not lower the health score.
+      Rule 2 - Administrative Shutdowns: Messages stating "received fast
+      shutdown request" or "terminating connection due to administrator
+      command" indicate a clean, intentional stop. Do not penalize the score.
+
+  - name: "gluetun"
+    enabled: true
+    context_prompt: |
+      This is a VPN tunnel container. Network interruptions during server
+      rotation are expected. DNS resolution failures lasting under 30 seconds
+      followed by successful connections are normal VPN handoff behavior.
+```
+
+**Implementation path:**
+- Add `context_prompt: Optional[str] = None` to `ContainerConfig` in `config.py`
+- In `ai_engine.py` `_build_messages()`, if the container has a `context_prompt`, append it to the system prompt after the base `v5_evaluate.txt` content: `system_prompt += "\n\n## Container-Specific Context\n" + ctx.context_prompt`
+- Add `context_prompt` field to `EvaluationContext` dataclass
+- Pass `container_cfg.context_prompt` through from `_process_container()` in `main.py`
+- This is a ~15 line change across 3 files with zero risk to existing behavior (None = no change)
+
+#### 8.2 Few-Shot Learning (Example-Based Calibration)
+
+Language models learn by example. Provide a small reference section inside the prompt containing a sample log of a known false positive alongside the correct analysis. By showing the model a benign shutdown sequence scored as healthy, it maps that logic to live data.
+
+**Config approach:** Add an optional `examples` list to `ContainerConfig`:
+
+```yaml
+containers:
+  - name: "pinchfork-db"
+    enabled: true
+    examples:
+      - label: "Normal PostgreSQL shutdown (healthy)"
+        log_snippet: |
+          FATAL: terminating connection due to administrator command
+          LOG: received fast shutdown request
+          LOG: aborting any active transactions
+          LOG: background worker "logical replication launcher" (PID 82) exited with exit code 1
+          LOG: shutting down
+          LOG: database system is shut down
+        correct_score: 95
+        correct_status: "healthy"
+        reasoning: "This is a clean administrative shutdown. All FATAL messages are expected during this sequence."
+```
+
+**Implementation path:**
+- Add `examples: list[dict] = []` to `ContainerConfig`
+- In `_build_messages()`, format examples as a `## Reference Examples` block appended after the container context:
+  ```
+  ## Reference Examples
+  The following are known scenarios with their correct evaluations. Use these to calibrate your scoring.
+  
+  ### Example: Normal PostgreSQL shutdown (healthy)
+  Log sample:
+  ---
+  FATAL: terminating connection due to administrator command
+  ...
+  ---
+  Correct assessment: healthy, score 95
+  Reasoning: This is a clean administrative shutdown.
+  ```
+- Few-shot examples are the most effective way to calibrate small models like llama3.1:8b — they often outperform lengthy rule descriptions
+
+#### 8.3 Contextual Metadata Tagging (Preprocessor Annotations)
+
+Rather than altering the LLM prompt, alter the data payload. Add a lightweight preprocessing step in `log_analyzer.py` that scans for known administrative commands or expected patterns. When it finds one, it appends a metadata note to that log line so the AI reads the raw log and the context simultaneously.
+
+**Config approach:** Add a `known_patterns` list to `ContainerConfig`:
+
+```yaml
+containers:
+  - name: "pinchfork-db"
+    enabled: true
+    known_patterns:
+      - pattern: "FATAL.*terminating connection due to administrator command"
+        tag: "[ROUTINE: admin shutdown sequence]"
+      - pattern: "deadlock detected"
+        tag: "[ROUTINE: normal transaction collision, auto-resolved]"
+      - pattern: "server misbehaving"
+        tag: "[EXPECTED: transient DNS during container startup]"
+```
+
+**Implementation path:**
+- Add `known_patterns: list[dict] = []` to `ContainerConfig`
+- In `log_analyzer.py` `analyze_logs()`, after cleaning each line but before severity detection, check against `known_patterns`. If matched, append the tag: `"FATAL: terminating connection due to administrator command [ROUTINE: admin shutdown sequence]"`
+- The tagged lines flow through `to_prompt()` into the error patterns and recent tail sections — the AI sees both the raw event and the human-provided context
+- Tags also influence the `ErrorPattern.context` field, replacing the generic "During shutdown sequence" with the user's specific annotation
+
+#### 8.4 Prompt Storage & Management UI
+
+Once container-specific prompts are working from config, move them into the database for live editing without container restarts.
+
+- New `container_prompts` table: `(container TEXT PRIMARY KEY, context_prompt TEXT, examples TEXT, known_patterns TEXT, updated_at TEXT)`
+- API endpoints: `GET/PUT /api/containers/{name}/prompt` for reading and updating per-container prompt configuration
+- "Prompt Editor" page in the frontend per container — textarea for context prompt, structured form for examples and known patterns
+- "Test" button: re-evaluates the container's most recent log snapshot with the edited prompt and shows the result side-by-side with the current evaluation
+- Prompts in DB override `config.yaml` values (DB wins, config is the fallback default)
+
+#### 8.5 Workload Auto-Detection (Stretch)
+
+Instead of requiring manual `context_prompt` configuration, detect common workload types from container image names and log signatures, then auto-inject a community-maintained context block.
+
+- Map known images to workload types: `postgres:*` → PostgreSQL, `linuxserver/plex` → Plex Media Server
+- Ship a `workload_contexts/` directory with default context prompts per workload type
+- Auto-detected context is appended BEFORE any user-supplied `context_prompt` (user rules always win)
+- Dashboard shows detected workload type with an "Edit" link to customize
+
+---
+
+### Phase 9 — Learning Mode
+
+The core problem with generic AI healthchecks is that every container has its own definition of "normal." Learning Mode lets Dockmon observe containers passively, surface patterns it thinks might be problems, and learn from user feedback what actually matters for each container.
+
+#### L1 — Pattern Detection Engine
+- New LLM prompt: `v1_learn.txt` — focused on pattern detection, not health judgment
+- New DB tables: `learned_patterns`, `container_rules`
+- Pattern deduplication via LLM clustering of similar log lines
+- Frequency and first/last seen tracking
+
+#### L2 — Learning Mode Dashboard
 - New frontend page: `/learning.html`
-- Per-container pattern list with example logs, frequency, AI guess
-- Approve/reject/watch buttons for each pattern
-- API endpoints:
-  - `GET /api/learning/{container}/patterns` -- list detected patterns
-  - `POST /api/learning/{container}/patterns/{id}/verdict` -- user marks problem/normal/watch
-  - `GET /api/learning/{container}/rules` -- view generated rules
-  - `POST /api/learning/{container}/promote` -- graduate to monitoring mode
+- Per-container pattern list with examples, frequency, AI guess
+- Approve/reject/watch buttons per pattern
+- API endpoints for pattern listing, verdict submission, rule viewing, promotion
 
-**Phase L3 -- Rule Injection into Evaluation**
-- When evaluating a container with learned rules, append them to the evaluation prompt
+#### L3 — Rule Injection into Evaluation
+- Append learned rules to evaluation prompts as container-specific context
 - Rules act as few-shot examples: "The user has told you that X is normal and Y is a problem"
-- Track whether learned rules improve or change evaluation accuracy over time
-- Allow users to edit/delete rules from the dashboard
+- Track whether learned rules improve evaluation accuracy
+- Allow editing/deleting rules from the dashboard
 
-**Phase L4 -- Continuous Learning**
-- Even in monitoring mode, flag NEW patterns not seen during learning
-- Present new patterns to the user periodically: "I noticed a new pattern in gluetun I haven't seen before..."
-- Allow re-entering learning mode to refine rules
+#### L4 — Continuous Learning
+- Flag NEW patterns not seen during learning, even in monitoring mode
+- Periodic notifications: "I noticed a new pattern in gluetun I haven't seen before..."
+- Re-enter learning mode to refine rules
 - Export/import rules between containers with similar roles
 
-### Config Changes
-
+#### Config Changes
 ```yaml
 containers:
   - name: "gluetun"
@@ -150,27 +325,53 @@ containers:
     mode: "learning"          # "learning" | "monitoring" (default: monitoring)
     learning:
       min_patterns_before_promote: 10
-      observation_cycles: 100  # how many cycles to observe before presenting patterns
+      observation_cycles: 100
     rules_file: null           # auto-generated, or path to manual rules yaml
 ```
 
-### Key Design Decisions
-
-- Learning mode uses a SEPARATE prompt from evaluation -- it's not trying to judge health, just identify patterns
-- Pattern detection runs through the LLM, not regex -- the AI clusters "connection refused to 10.2.0.1:5351" and "connection refused to 10.2.0.1:5352" as the same pattern
+#### Key Design Decisions
+- Learning mode uses a SEPARATE prompt from evaluation — it's identifying patterns, not judging health
+- Pattern detection runs through the LLM, not regex — clusters similar messages as the same pattern
 - User verdicts are stored permanently and survive prompt version upgrades
-- Rules are human-readable YAML, editable by hand if needed
-- A container can be in learning mode indefinitely -- no pressure to promote
+- Rules are human-readable YAML, editable by hand
+- A container can stay in learning mode indefinitely
 
-## Other Future Features
+---
 
-- Compose group-aware restarts -- restart entire compose stacks when a member fails
-- Multi-container failure correlation -- detect containers failing within 60s of each other
-- Trend engine -- 7-day and 30-day restart frequency tracking
-- DB maintenance -- auto-prune events older than 90 days
-- Config hot-reload -- watch config file for changes, reload without restart
-- Prometheus metrics -- /metrics endpoint for external monitoring
-- Self-healing scripts -- custom remediation per container
-- Resource metric correlation -- CPU/memory stats from Docker API
-- Multi-host support -- monitor across Docker hosts via TCP/SSH
-- Web config editor -- edit config.yaml from the dashboard
+### Phase 10 — Fleet Management (Distributed Architecture)
+
+**Objective:** Scale Dockmon to monitor multiple servers across an entire homelab or production environment.
+
+#### 10.1 Remote Socket Integration
+- Refactor `docker_client.py` to support multiple Docker clients
+- Beyond `/var/run/docker.sock`, support TCP (`tcp://192.168.1.50:2375`) and SSH endpoints in `config.yaml`
+- Update database schema to include `node_name` on all events and cooldowns
+
+#### 10.2 UI Fleet Grouping
+- Dashboard groups containers by host node
+- Log Explorer dropdown to filter by node
+
+#### 10.3 Portainer API Sync (Stretch)
+- Accept a Portainer API token, auto-discover all running edge nodes, dynamically map target containers
+- Eliminates manual IP configuration in `config.yaml`
+
+---
+
+### Phase 11 — Open-Source Readiness
+
+**Objective:** Prepare the repository for public consumption and community contributions.
+
+- **Community Prompt Library:** Public GitHub repo of tuned prompts (`prompts/nginx.json`, `prompts/plex.json`). Button in the UI to "Fetch Community Prompts"
+- **Privilege Dropping:** Dockerfile runs as non-root user (Docker socket access via group permissions)
+- **Documentation:** Comprehensive README covering Ollama setup, v5 preprocessor architecture, config reference, API docs
+- **Config hot-reload:** Watch config file for changes, reload without restart
+- **Prometheus metrics:** `/metrics` endpoint for external monitoring (Grafana dashboards)
+
+---
+
+## Other Ideas (Unscheduled)
+
+- Anomaly detection: statistical baseline deviation alerting without LLM involvement
+- Web config editor: edit config.yaml from the dashboard
+- Webhook integrations: accept incoming webhooks to trigger evaluations
+- Container grouping by service role (databases, web servers, media) for role-specific prompts
