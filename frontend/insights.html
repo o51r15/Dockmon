@@ -1,0 +1,682 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DockLlama — Insights</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/alpinejs/3.13.5/cdn.min.js" defer></script>
+<style>
+:root {
+  --bg: #0f1117; --surface: #1a1d27; --surface2: #242834;
+  --border: #2e3345; --text: #e4e6ed; --text-dim: #8b8fa3;
+  --green: #22c55e; --yellow: #eab308; --red: #ef4444; --blue: #3b82f6;
+  --orange: #f97316;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:var(--bg); color:var(--text); font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; }
+.header { padding:1.5rem 2rem; border-bottom:1px solid var(--border); }
+.header h1 { font-size:1.4rem; font-weight:600; }
+.header h1 span { color:var(--blue); }
+nav { padding:0.75rem 2rem; border-bottom:1px solid var(--border); display:flex; gap:1rem; }
+nav a { color:var(--text-dim); text-decoration:none; padding:0.4rem 0.8rem; border-radius:6px; font-size:0.85rem; }
+nav a.active, nav a:hover { color:var(--text); background:var(--surface2); }
+
+.layout { display:flex; min-height:calc(100vh - 110px); }
+.sidebar { width:200px; border-right:1px solid var(--border); padding:1rem 0; flex-shrink:0; }
+.sidebar a { display:block; padding:0.6rem 1.5rem; color:var(--text-dim); text-decoration:none; font-size:0.85rem; cursor:pointer; }
+.sidebar a:hover { color:var(--text); background:var(--surface); }
+.sidebar a.active { color:var(--text); background:var(--surface2); border-right:2px solid var(--blue); }
+.main { flex:1; min-width:0; overflow-y:auto; }
+
+/* Shared */
+.loading { text-align:center; padding:3rem; color:var(--text-dim); }
+.btn { padding:0.4rem 0.85rem; border-radius:5px; border:1px solid var(--border); background:var(--surface2); color:var(--text); font-size:0.8rem; cursor:pointer; }
+.btn:hover { background:var(--border); }
+.btn-blue { border-color:var(--blue); color:var(--blue); }
+.btn-blue:hover { background:var(--blue); color:white; }
+.btn-primary { background:var(--blue); border-color:var(--blue); color:#fff; font-size:0.85rem; padding:0.5rem 1rem; border-radius:6px; }
+.btn-primary:hover { opacity:0.9; }
+.btn-generate { border-color:var(--yellow); color:var(--yellow); }
+.btn-generate:hover { background:#eab30822; }
+.confidence { font-weight:600; }
+.conf-high { color:var(--green); }
+.conf-mid { color:var(--yellow); }
+.conf-low { color:var(--red); }
+select, input { background:var(--surface); border:1px solid var(--border); color:var(--text); padding:0.5rem 0.75rem; border-radius:6px; font-size:0.85rem; }
+select:focus, input:focus { outline:none; border-color:var(--blue); }
+
+/* ── Health Trends ── */
+.trends-section { padding:2rem; }
+.trends-section h2 { font-size:1.1rem; margin-bottom:1rem; }
+.trends-fleet { display:flex; gap:1.5rem; margin-bottom:1rem; flex-wrap:wrap; }
+.stat-card { background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:1rem 1.25rem; min-width:160px; }
+.stat-value { font-size:1.5rem; font-weight:700; }
+.stat-label { font-size:0.75rem; color:var(--text-dim); margin-top:0.2rem; }
+.trends-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:1rem; }
+.trend-card { background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:1rem; }
+.trend-card-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem; }
+.trend-card-name { font-weight:600; font-size:0.9rem; }
+.trend-badge { padding:0.15rem 0.5rem; border-radius:4px; font-size:0.7rem; font-weight:600; text-transform:uppercase; }
+.trend-improving { background:#22c55e22; color:var(--green); }
+.trend-stable { background:#3b82f622; color:var(--blue); }
+.trend-worsening { background:#ef444422; color:var(--red); }
+.trend-insufficient_data { background:#8b8fa322; color:var(--text-dim); }
+.trend-bars { display:flex; gap:1rem; margin-top:0.5rem; }
+.trend-bar { flex:1; }
+.trend-bar-label { font-size:0.7rem; color:var(--text-dim); margin-bottom:0.25rem; }
+.trend-bar-track { background:var(--surface2); border-radius:4px; height:6px; overflow:hidden; }
+.trend-bar-fill { height:100%; border-radius:4px; transition:width 0.5s; }
+.trend-bar-fill-green { background:var(--green); }
+.trend-bar-fill-yellow { background:var(--yellow); }
+.trend-bar-fill-red { background:var(--red); }
+.trend-stats { display:flex; justify-content:space-between; margin-top:0.5rem; font-size:0.75rem; color:var(--text-dim); }
+
+/* ── Recent Events ── */
+.events-panel { padding:2rem; }
+.events-panel h2 { font-size:1.1rem; margin-bottom:1rem; }
+table { width:100%; border-collapse:collapse; font-size:0.8rem; }
+th { text-align:left; padding:0.5rem; color:var(--text-dim); border-bottom:1px solid var(--border); font-weight:500; }
+td { padding:0.5rem; border-bottom:1px solid var(--border); }
+.type-badge { padding:0.15rem 0.4rem; border-radius:3px; font-size:0.7rem; font-weight:600; }
+.type-evaluation { background:#3b82f622; color:var(--blue); }
+.type-action { background:#eab30822; color:var(--yellow); }
+.type-restart { background:#ef444422; color:var(--red); }
+
+/* ── Log Explorer ── */
+.explorer-section { padding:0; }
+.controls { padding:1.5rem 2rem; display:flex; gap:1rem; align-items:center; flex-wrap:wrap; }
+.log-container { padding:0 2rem 2rem; display:flex; gap:1rem; }
+.log-panel { flex:1; min-width:0; }
+.log-panel h3 { font-size:0.9rem; margin-bottom:0.5rem; color:var(--text-dim); }
+.log-box { background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:1rem; font-family:'JetBrains Mono','Fira Code',monospace; font-size:0.75rem; line-height:1.6; max-height:500px; overflow-y:auto; white-space:pre-wrap; word-break:break-all; }
+.log-line { padding:1px 0; }
+.log-line:hover { background:var(--surface2); }
+.log-warn { color:var(--yellow); }
+.log-error { color:var(--red); }
+.eval-result { background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:1.25rem; margin:0 2rem 2rem; }
+.eval-result h3 { font-size:0.9rem; margin-bottom:0.75rem; }
+.eval-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:0.75rem; font-size:0.85rem; }
+.eval-item .label { color:var(--text-dim); font-size:0.75rem; }
+.eval-item .value { margin-top:0.2rem; }
+.stats { padding:0.75rem 2rem; font-size:0.8rem; color:var(--text-dim); display:flex; gap:2rem; }
+.restart-history { padding:0 2rem 2rem; }
+.restart-history h3 { font-size:0.9rem; margin-bottom:0.75rem; color:var(--text-dim); }
+.restart-card { background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:1rem; margin-bottom:0.75rem; }
+.restart-card .meta { font-size:0.75rem; color:var(--text-dim); margin-bottom:0.5rem; }
+.restart-card .summary { font-size:0.85rem; margin-bottom:0.5rem; }
+.restart-card .snapshot { font-family:monospace; font-size:0.7rem; background:var(--surface2); padding:0.5rem; border-radius:4px; max-height:150px; overflow-y:auto; white-space:pre-wrap; }
+
+/* ── Digest ── */
+.digest-section { padding:2rem; max-width:860px; }
+.digest-controls { display:flex; gap:1rem; align-items:center; margin-bottom:1.5rem; flex-wrap:wrap; }
+.date-input { background:var(--surface2); border:1px solid var(--border); border-radius:6px; padding:0.5rem 0.75rem; color:var(--text); font-size:0.85rem; }
+.date-input:focus { outline:none; border-color:var(--blue); }
+.digest-card { background:var(--surface); border:1px solid var(--border); border-radius:10px; overflow:hidden; }
+.digest-header { padding:1.25rem 1.5rem; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; }
+.digest-health { display:flex; align-items:center; gap:0.75rem; }
+.health-badge { padding:0.3rem 0.8rem; border-radius:6px; font-size:0.85rem; font-weight:600; text-transform:uppercase; }
+.health-good { background:#22c55e22; color:var(--green); }
+.health-mixed { background:#eab30822; color:var(--yellow); }
+.health-poor { background:#ef444422; color:var(--red); }
+.health-unknown { background:var(--surface2); color:var(--text-dim); }
+.digest-date { color:var(--text-dim); font-size:0.8rem; }
+.digest-headline { padding:1rem 1.5rem; font-size:1rem; line-height:1.5; border-bottom:1px solid var(--border); }
+.container-list { padding:1rem 1.5rem; }
+.container-list h3 { font-size:0.9rem; color:var(--text-dim); margin-bottom:0.75rem; }
+.container-item { display:flex; gap:0.75rem; align-items:flex-start; padding:0.6rem 0; border-bottom:1px solid var(--surface2); }
+.container-item:last-child { border-bottom:none; }
+.container-emoji { font-size:1.1rem; min-width:1.5rem; text-align:center; }
+.container-name { font-weight:600; font-size:0.85rem; }
+.container-summary { color:var(--text-dim); font-size:0.8rem; margin-top:0.15rem; line-height:1.4; }
+.digest-sub-section { padding:1rem 1.5rem; border-top:1px solid var(--border); }
+.digest-sub-section h3 { font-size:0.9rem; color:var(--text-dim); margin-bottom:0.5rem; }
+.digest-sub-section li { color:var(--text); font-size:0.85rem; line-height:1.6; margin-left:1.25rem; }
+.stats-bar { display:flex; gap:1.5rem; padding:1rem 1.5rem; border-top:1px solid var(--border); flex-wrap:wrap; }
+.stat { text-align:center; }
+.digest-pre { padding:1.5rem; font-family:monospace; font-size:0.8rem; line-height:1.6; white-space:pre-wrap; color:var(--text-dim); }
+.empty-state { text-align:center; padding:4rem 2rem; color:var(--text-dim); }
+.empty-state h2 { font-size:1.2rem; margin-bottom:0.5rem; color:var(--text); }
+.empty-state p { font-size:0.9rem; margin-bottom:1.5rem; }
+</style>
+</head>
+<body x-data="insightsApp()" x-init="init()">
+
+<div class="header">
+  <h1>dock<span>Llama</span></h1>
+</div>
+
+<nav>
+  <a href="/">Dashboard</a>
+  <a href="/insights.html" class="active">Insights</a>
+  <a href="/settings.html">Settings</a>
+</nav>
+
+<div class="layout">
+  <div class="sidebar">
+    <a :class="view==='trends' && 'active'" @click="setView('trends')">Health Trends</a>
+    <a :class="view==='events' && 'active'" @click="setView('events')">Recent Events</a>
+    <a :class="view==='explorer' && 'active'" @click="setView('explorer')">Log Explorer</a>
+    <a :class="view==='digest' && 'active'" @click="setView('digest')">Digest</a>
+  </div>
+
+  <div class="main">
+    <!-- ═══ HEALTH TRENDS ═══ -->
+    <div x-show="view==='trends'" x-cloak>
+      <div class="trends-section">
+        <h2>Health Trends</h2>
+        <template x-if="!trends">
+          <div class="loading">Loading trends...</div>
+        </template>
+        <template x-if="trends">
+          <div>
+            <div class="trends-fleet">
+              <div class="stat-card">
+                <div class="stat-value" :class="trends.fleet_health_pct_7d >= 80 ? 'conf-high' : trends.fleet_health_pct_7d >= 50 ? 'conf-mid' : 'conf-low'"
+                     x-text="trends.fleet_health_pct_7d + '%'"></div>
+                <div class="stat-label">Fleet Health (7d)</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-value" x-text="trends.fleet_total_evaluations_7d"></div>
+                <div class="stat-label">Evaluations (7d)</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-value" :style="trends.fleet_restarts_7d > 0 ? 'color:var(--red)' : ''"
+                     x-text="trends.fleet_restarts_7d"></div>
+                <div class="stat-label">Restarts (7d)</div>
+              </div>
+              <template x-if="trends.worsening_containers && trends.worsening_containers.length > 0">
+                <div class="stat-card" style="border-color:var(--red)">
+                  <div class="stat-value conf-low" x-text="trends.worsening_containers.length"></div>
+                  <div class="stat-label">Worsening</div>
+                </div>
+              </template>
+            </div>
+            <div class="trends-grid" x-show="trends.containers">
+              <template x-for="t in (trends.containers || [])" :key="t.container">
+                <div class="trend-card">
+                  <div class="trend-card-header">
+                    <span class="trend-card-name" x-text="t.container"></span>
+                    <span class="trend-badge" :class="'trend-' + t.trend" x-text="t.trend.replace('_',' ')"></span>
+                  </div>
+                  <div class="trend-bars">
+                    <div class="trend-bar">
+                      <div class="trend-bar-label">7d: <span x-text="t.last_7d.health_pct + '%'"></span></div>
+                      <div class="trend-bar-track">
+                        <div class="trend-bar-fill" :class="t.last_7d.health_pct >= 80 ? 'trend-bar-fill-green' : t.last_7d.health_pct >= 50 ? 'trend-bar-fill-yellow' : 'trend-bar-fill-red'"
+                             :style="'width:' + t.last_7d.health_pct + '%'"></div>
+                      </div>
+                    </div>
+                    <div class="trend-bar">
+                      <div class="trend-bar-label">30d: <span x-text="t.last_30d.health_pct + '%'"></span></div>
+                      <div class="trend-bar-track">
+                        <div class="trend-bar-fill" :class="t.last_30d.health_pct >= 80 ? 'trend-bar-fill-green' : t.last_30d.health_pct >= 50 ? 'trend-bar-fill-yellow' : 'trend-bar-fill-red'"
+                             :style="'width:' + t.last_30d.health_pct + '%'"></div>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="trend-stats">
+                    <span x-text="t.last_7d.total_evaluations + ' evals'"></span>
+                    <span x-text="t.last_7d.restarts + ' restarts'"></span>
+                    <span x-text="'avg conf ' + t.last_7d.avg_confidence + '%'"></span>
+                  </div>
+                  <template x-if="t.last_7d.top_causes && t.last_7d.top_causes.length > 0">
+                    <div style="margin-top:0.4rem;font-size:0.7rem;color:var(--text-dim)">
+                      Top causes: <span x-text="t.last_7d.top_causes.map(c => c.category + ' (' + c.count + ')').join(', ')"></span>
+                    </div>
+                  </template>
+                </div>
+              </template>
+            </div>
+          </div>
+        </template>
+      </div>
+    </div>
+
+    <!-- ═══ RECENT EVENTS ═══ -->
+    <div x-show="view==='events'" x-cloak>
+      <div class="events-panel">
+        <h2>Recent Events</h2>
+        <table>
+          <thead><tr><th>Time</th><th>Container</th><th>Type</th><th>Status</th><th>Confidence</th><th>Summary</th></tr></thead>
+          <tbody>
+            <template x-for="e in events" :key="e.id">
+              <tr>
+                <td x-text="timeAgo(e.timestamp)"></td>
+                <td x-text="e.container"></td>
+                <td><span class="type-badge" :class="'type-'+e.event_type" x-text="e.event_type"></span></td>
+                <td x-text="e.ai_status || '-'"></td>
+                <td x-text="e.confidence !== null ? e.confidence + '%' : '-'"></td>
+                <td style="max-width:400px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="e.summary || '-'"></td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ═══ LOG EXPLORER ═══ -->
+    <div x-show="view==='explorer'" x-cloak>
+      <div class="explorer-section">
+        <div class="controls">
+          <select x-model="explorerContainer" @change="fetchLogs()">
+            <option value="">Select container...</option>
+            <template x-for="c in containers" :key="c.name">
+              <option :value="c.name" x-text="c.name"></option>
+            </template>
+          </select>
+          <label style="font-size:0.8rem;color:var(--text-dim)">
+            Tail: <input type="number" x-model.number="tail" min="10" max="2000" style="width:80px">
+          </label>
+          <button class="btn" @click="fetchLogs()" :disabled="!explorerContainer">Refresh</button>
+          <button class="btn btn-blue" @click="evalSelected()" :disabled="!explorerContainer || evaluating">
+            <span x-text="evaluating ? 'Evaluating...' : 'Evaluate with AI'"></span>
+          </button>
+          <label style="font-size:0.8rem;color:var(--text-dim);display:flex;gap:0.3rem;align-items:center">
+            <input type="checkbox" x-model="showRaw"> Show raw logs
+          </label>
+        </div>
+
+        <template x-if="logData">
+          <div class="stats">
+            <span>Total lines: <strong x-text="logData.total_lines"></strong></span>
+            <span>Filtered: <strong x-text="logData.filtered_count"></strong></span>
+            <span>Dropped (ignore): <strong x-text="logData.dropped_ignore"></strong></span>
+            <span>Dropped (info): <strong x-text="logData.dropped_level"></strong></span>
+          </div>
+        </template>
+
+        <div class="log-container" x-show="logData">
+          <div class="log-panel">
+            <h3 x-text="showRaw ? 'Raw Logs' : 'Filtered Logs (WARN/ERROR/unknown)'"></h3>
+            <div class="log-box">
+              <template x-if="showRaw && logData">
+                <template x-for="(line, i) in logData.raw_lines" :key="i">
+                  <div class="log-line" x-text="line"></div>
+                </template>
+              </template>
+              <template x-if="!showRaw && logData">
+                <template x-for="(line, i) in logData.lines" :key="i">
+                  <div class="log-line" :class="lineClass(line)" x-text="line"></div>
+                </template>
+              </template>
+            </div>
+          </div>
+        </div>
+
+        <template x-if="evalResult">
+          <div class="eval-result">
+            <h3>AI Evaluation Result</h3>
+            <div class="eval-grid">
+              <div class="eval-item">
+                <div class="label">Status</div>
+                <div class="value" :style="'color:var(--'+(evalResult.status==='healthy'?'green':'red')+')'">
+                  <strong x-text="evalResult.status.toUpperCase()"></strong>
+                </div>
+              </div>
+              <div class="eval-item">
+                <div class="label">Confidence</div>
+                <div class="value"><strong x-text="evalResult.confidence + '%'"></strong></div>
+              </div>
+              <div class="eval-item">
+                <div class="label">Root Cause</div>
+                <div class="value" x-text="evalResult.root_cause_category"></div>
+              </div>
+              <div class="eval-item">
+                <div class="label">Recommended Action</div>
+                <div class="value" x-text="evalResult.recommended_action"></div>
+              </div>
+              <div class="eval-item" style="grid-column:1/-1">
+                <div class="label">Summary</div>
+                <div class="value" x-text="evalResult.summary"></div>
+              </div>
+              <div class="eval-item">
+                <div class="label">Model</div>
+                <div class="value" x-text="evalResult.model"></div>
+              </div>
+              <div class="eval-item">
+                <div class="label">Eval Time</div>
+                <div class="value" x-text="evalResult.eval_time_seconds + 's'"></div>
+              </div>
+              <div class="eval-item">
+                <div class="label">Lines Evaluated</div>
+                <div class="value" x-text="evalResult.lines_evaluated"></div>
+              </div>
+            </div>
+          </div>
+        </template>
+
+        <template x-if="restarts.length > 0">
+          <div class="restart-history">
+            <h3>Why did it restart?</h3>
+            <template x-for="r in restarts" :key="r.id">
+              <div class="restart-card">
+                <div class="meta">
+                  <span x-text="r.timestamp"></span> —
+                  <span x-text="r.action_taken"></span> —
+                  <span x-text="r.root_cause_category"></span>
+                  (confidence: <span x-text="r.confidence + '%'"></span>)
+                </div>
+                <div class="summary" x-text="r.summary"></div>
+                <template x-if="r.log_snapshot">
+                  <div class="snapshot" x-text="r.log_snapshot"></div>
+                </template>
+              </div>
+            </template>
+          </div>
+        </template>
+      </div>
+    </div>
+
+    <!-- ═══ DIGEST ═══ -->
+    <div x-show="view==='digest'" x-cloak>
+      <div class="digest-section">
+        <div class="digest-controls">
+          <input type="date" class="date-input" x-model="selectedDate" @change="loadByDate()">
+          <button class="btn" @click="loadLatest()">Latest</button>
+          <button class="btn btn-generate" @click="generateNow()" :disabled="generating">
+            <span x-text="generating ? 'Generating...' : 'Generate Now'"></span>
+          </button>
+          <template x-if="availableDates.length > 0">
+            <span style="color:var(--text-dim); font-size:0.8rem;" x-text="availableDates.length + ' digest(s) available'"></span>
+          </template>
+        </div>
+
+        <template x-if="digestLoading">
+          <div class="loading">Loading digest...</div>
+        </template>
+
+        <template x-if="!digestLoading && !digest && !digestError">
+          <div class="empty-state">
+            <h2>No Digests Yet</h2>
+            <p>The daily digest runs automatically at the scheduled time, or you can generate one now.</p>
+            <button class="btn btn-primary" @click="generateNow()" :disabled="generating">
+              <span x-text="generating ? 'Generating...' : 'Generate First Digest'"></span>
+            </button>
+          </div>
+        </template>
+
+        <template x-if="digestError">
+          <div class="empty-state">
+            <h2>No Digest Found</h2>
+            <p x-text="digestError"></p>
+            <button class="btn" @click="loadLatest()">Load Latest</button>
+          </div>
+        </template>
+
+        <template x-if="!digestLoading && digest">
+          <div class="digest-card">
+            <div class="digest-header">
+              <div class="digest-health">
+                <span class="health-badge" :class="healthClass(digest.overall_health)" x-text="(digest.overall_health || 'unknown').toUpperCase()"></span>
+                <span style="font-weight:600;">Daily Digest</span>
+              </div>
+              <div class="digest-date">
+                <span x-text="digestDate"></span>
+                <span x-show="digestTime" x-text="' at ' + digestTime" style="margin-left:0.25rem;"></span>
+              </div>
+            </div>
+            <div class="digest-headline" x-text="digest.headline || 'No headline'"></div>
+            <template x-if="digest.container_summaries && digest.container_summaries.length > 0">
+              <div class="container-list">
+                <h3>Container Status</h3>
+                <template x-for="cs in digest.container_summaries" :key="cs.name">
+                  <div class="container-item">
+                    <div class="container-emoji" x-text="cs.status_emoji || '?'"></div>
+                    <div>
+                      <div class="container-name" x-text="cs.name"></div>
+                      <div class="container-summary" x-text="cs.one_liner || ''"></div>
+                    </div>
+                  </div>
+                </template>
+              </div>
+            </template>
+            <template x-if="digest.trends && digest.trends.length > 0">
+              <div class="digest-sub-section">
+                <h3>Trends</h3>
+                <ul>
+                  <template x-for="trend in digest.trends" :key="trend">
+                    <li x-text="trend"></li>
+                  </template>
+                </ul>
+              </div>
+            </template>
+            <template x-if="digest.recommendations && digest.recommendations.length > 0">
+              <div class="digest-sub-section">
+                <h3>Recommendations</h3>
+                <ul>
+                  <template x-for="rec in digest.recommendations" :key="rec">
+                    <li x-text="rec"></li>
+                  </template>
+                </ul>
+              </div>
+            </template>
+            <template x-if="digest.stats">
+              <div class="stats-bar">
+                <div class="stat"><div class="stat-value" x-text="digest.stats.total_evaluations || 0"></div><div class="stat-label">Evaluations</div></div>
+                <div class="stat"><div class="stat-value" style="color:var(--green)" x-text="digest.stats.total_healthy || 0"></div><div class="stat-label">Healthy</div></div>
+                <div class="stat"><div class="stat-value" style="color:var(--red)" x-text="digest.stats.total_unhealthy || 0"></div><div class="stat-label">Unhealthy</div></div>
+                <div class="stat"><div class="stat-value" style="color:var(--yellow)" x-text="digest.stats.total_restarts || 0"></div><div class="stat-label">Restarts</div></div>
+              </div>
+            </template>
+            <template x-if="!digest.container_summaries && formattedText">
+              <pre class="digest-pre" x-text="formattedText"></pre>
+            </template>
+          </div>
+        </template>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function insightsApp() {
+  return {
+    view: 'trends',
+    containers: [],
+    // Trends
+    trends: null,
+    // Events
+    events: [],
+    // Explorer
+    explorerContainer: '',
+    tail: 200,
+    showRaw: false,
+    logData: null,
+    evalResult: null,
+    evaluating: false,
+    restarts: [],
+    // Digest
+    digest: null,
+    formattedText: '',
+    digestDate: '',
+    digestTime: '',
+    digestLoading: false,
+    generating: false,
+    digestError: null,
+    selectedDate: '',
+    availableDates: [],
+    // SSE
+    eventSource: null,
+
+    async init() {
+      // Check URL params for initial view
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('view')) this.view = params.get('view');
+
+      await this.fetchContainers();
+      this.fetchTrends();
+      this.fetchEvents();
+
+      // If explorer with container param, auto-load
+      if (this.view === 'explorer' && params.get('container')) {
+        this.explorerContainer = params.get('container');
+        this.fetchLogs();
+      }
+
+      // If digest view, load digest data
+      if (this.view === 'digest') {
+        this.loadDates();
+        this.loadLatest();
+      }
+
+      this.connectSSE();
+    },
+
+    setView(v) {
+      this.view = v;
+      history.replaceState(null, '', '/insights.html?view=' + v);
+      if (v === 'digest' && !this.digest && !this.digestLoading) {
+        this.loadDates();
+        this.loadLatest();
+      }
+    },
+
+    async fetchContainers() {
+      try {
+        const r = await fetch('/api/containers');
+        this.containers = await r.json();
+      } catch(e) { console.error(e); }
+    },
+
+    async fetchTrends() {
+      try {
+        const r = await fetch('/api/trends');
+        this.trends = await r.json();
+      } catch(e) { console.error(e); }
+    },
+
+    async fetchEvents() {
+      try {
+        const r = await fetch('/api/events?limit=20');
+        this.events = await r.json();
+      } catch(e) { console.error(e); }
+    },
+
+    connectSSE() {
+      this.eventSource = new EventSource('/api/stream');
+      this.eventSource.onmessage = (e) => {
+        const data = JSON.parse(e.data);
+        if (data.type === 'evaluation' || data.type === 'action') {
+          this.fetchContainers();
+          this.fetchEvents();
+          this.fetchTrends();
+        }
+      };
+      this.eventSource.onerror = () => { setTimeout(() => this.connectSSE(), 5000); };
+    },
+
+    // ── Explorer ──
+    async fetchLogs() {
+      if (!this.explorerContainer) return;
+      this.evalResult = null;
+      try {
+        const r = await fetch(`/api/containers/${this.explorerContainer}/logs?tail=${this.tail}`);
+        this.logData = await r.json();
+      } catch(e) { console.error(e); }
+      this.fetchRestarts();
+    },
+
+    async fetchRestarts() {
+      try {
+        const r = await fetch(`/api/events/${this.explorerContainer}/restarts?limit=5`);
+        this.restarts = await r.json();
+      } catch(e) { this.restarts = []; }
+    },
+
+    async evalSelected() {
+      if (!this.explorerContainer) return;
+      this.evaluating = true;
+      try {
+        const r = await fetch(`/api/containers/${this.explorerContainer}/evaluate`, {
+          method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'
+        });
+        this.evalResult = await r.json();
+      } catch(e) { console.error(e); }
+      this.evaluating = false;
+    },
+
+    lineClass(line) {
+      const l = line.toLowerCase();
+      if (l.match(/\berror\b|\bfatal\b|\bpanic\b|\bcritical\b/)) return 'log-error';
+      if (l.match(/\bwarn/)) return 'log-warn';
+      return '';
+    },
+
+    // ── Digest ──
+    async loadDates() {
+      try {
+        const resp = await fetch('/api/digests?limit=90');
+        if (resp.ok) this.availableDates = await resp.json();
+      } catch(e) {}
+    },
+
+    async loadLatest() {
+      this.digestLoading = true;
+      this.digestError = null;
+      try {
+        const resp = await fetch('/api/digests/latest');
+        if (resp.status === 404) { this.digest = null; this.digestLoading = false; return; }
+        if (!resp.ok) throw new Error('Failed');
+        this.setDigest(await resp.json());
+      } catch(e) { this.digest = null; }
+      this.digestLoading = false;
+    },
+
+    async loadByDate() {
+      if (!this.selectedDate) return;
+      this.digestLoading = true;
+      this.digestError = null;
+      try {
+        const resp = await fetch('/api/digests/' + this.selectedDate);
+        if (resp.status === 404) { this.digest = null; this.digestError = 'No digest for ' + this.selectedDate; this.digestLoading = false; return; }
+        if (!resp.ok) throw new Error('Failed');
+        this.setDigest(await resp.json());
+      } catch(e) { this.digestError = e.message; }
+      this.digestLoading = false;
+    },
+
+    async generateNow() {
+      this.generating = true;
+      try {
+        const resp = await fetch('/api/digest', { method: 'POST' });
+        if (!resp.ok) throw new Error('Generation failed');
+        await new Promise(r => setTimeout(r, 500));
+        await this.loadDates();
+        await this.loadLatest();
+      } catch(e) { this.digestError = 'Failed: ' + e.message; }
+      this.generating = false;
+    },
+
+    setDigest(data) {
+      this.digest = data.digest || {};
+      this.formattedText = data.formatted_text || '';
+      this.digestDate = data.date || '';
+      this.selectedDate = data.date || '';
+      if (data.generated_at) {
+        const d = new Date(data.generated_at + 'Z');
+        this.digestTime = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      }
+    },
+
+    healthClass(health) {
+      if (!health) return 'health-unknown';
+      const h = health.toLowerCase();
+      if (h === 'good' || h === 'healthy' || h === 'excellent') return 'health-good';
+      if (h === 'mixed' || h === 'fair' || h === 'degraded') return 'health-mixed';
+      if (h === 'poor' || h === 'bad' || h === 'critical') return 'health-poor';
+      return 'health-unknown';
+    },
+
+    timeAgo(ts) {
+      if (!ts) return '';
+      const diff = (Date.now() - new Date(ts+'Z').getTime()) / 1000;
+      if (diff < 60) return Math.round(diff) + 's ago';
+      if (diff < 3600) return Math.round(diff/60) + 'm ago';
+      if (diff < 86400) return Math.round(diff/3600) + 'h ago';
+      return Math.round(diff/86400) + 'd ago';
+    }
+  };
+}
+</script>
+</body>
+</html>

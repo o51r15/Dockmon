@@ -10,30 +10,29 @@
   --bg: #0f1117; --surface: #1a1d27; --surface2: #242834;
   --border: #2e3345; --text: #e4e6ed; --text-dim: #8b8fa3;
   --green: #22c55e; --yellow: #eab308; --red: #ef4444; --blue: #3b82f6;
+  --orange: #f97316;
 }
 * { margin:0; padding:0; box-sizing:border-box; }
 body { background:var(--bg); color:var(--text); font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; }
-.header { padding:1.5rem 2rem; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; }
+.header { padding:1.5rem 2rem; border-bottom:1px solid var(--border); }
 .header h1 { font-size:1.4rem; font-weight:600; }
 .header h1 span { color:var(--blue); }
 nav { padding:0.75rem 2rem; border-bottom:1px solid var(--border); display:flex; gap:1rem; }
 nav a { color:var(--text-dim); text-decoration:none; padding:0.4rem 0.8rem; border-radius:6px; font-size:0.85rem; }
 nav a.active, nav a:hover { color:var(--text); background:var(--surface2); }
 
-.content { max-width:720px; margin:0 auto; padding:2rem; }
+.layout { display:flex; min-height:calc(100vh - 110px); }
+.sidebar { width:200px; border-right:1px solid var(--border); padding:1rem 0; flex-shrink:0; }
+.sidebar a { display:block; padding:0.6rem 1.5rem; color:var(--text-dim); text-decoration:none; font-size:0.85rem; cursor:pointer; }
+.sidebar a:hover { color:var(--text); background:var(--surface); }
+.sidebar a.active { color:var(--text); background:var(--surface2); border-right:2px solid var(--blue); }
+.main { flex:1; min-width:0; overflow-y:auto; }
+
+.content { max-width:900px; padding:2rem; }
 .section { background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:1.5rem; margin-bottom:1.5rem; }
 .section h2 { font-size:1.1rem; margin-bottom:0.5rem; }
 .section p.desc { color:var(--text-dim); font-size:0.85rem; margin-bottom:1.25rem; line-height:1.5; }
 
-.url-list { display:flex; flex-direction:column; gap:0.5rem; margin-bottom:1rem; }
-.url-row { display:flex; gap:0.5rem; align-items:center; }
-.url-row input { flex:1; background:var(--surface2); border:1px solid var(--border); border-radius:6px; padding:0.5rem 0.75rem; color:var(--text); font-size:0.85rem; font-family:monospace; }
-.url-row input:focus { outline:none; border-color:var(--blue); }
-.url-row input::placeholder { color:var(--text-dim); }
-.btn-icon { background:none; border:1px solid var(--border); border-radius:6px; padding:0.4rem 0.6rem; color:var(--text-dim); cursor:pointer; font-size:0.85rem; }
-.btn-icon:hover { color:var(--red); border-color:var(--red); }
-
-.btn-row { display:flex; gap:0.75rem; flex-wrap:wrap; }
 .btn { padding:0.5rem 1rem; border-radius:6px; border:1px solid var(--border); background:var(--surface2); color:var(--text); font-size:0.85rem; cursor:pointer; }
 .btn:hover { background:var(--border); }
 .btn-primary { background:var(--blue); border-color:var(--blue); color:#fff; }
@@ -41,144 +40,401 @@ nav a.active, nav a:hover { color:var(--text); background:var(--surface2); }
 .btn-secondary { border-color:var(--text-dim); }
 .btn-test { border-color:var(--green); color:var(--green); }
 .btn-test:hover { background:#22c55e22; }
+.btn-danger { border-color:var(--red); color:var(--red); }
+.btn-danger:hover { background:#ef444422; }
+.btn-row { display:flex; gap:0.75rem; flex-wrap:wrap; align-items:center; }
+.btn-icon { background:none; border:1px solid var(--border); border-radius:6px; padding:0.4rem 0.6rem; color:var(--text-dim); cursor:pointer; font-size:0.85rem; }
+.btn-icon:hover { color:var(--red); border-color:var(--red); }
+
+select, textarea, input[type="text"], input[type="number"] {
+  background:var(--surface2); border:1px solid var(--border); border-radius:6px;
+  padding:0.5rem 0.75rem; color:var(--text); font-size:0.85rem; width:100%;
+}
+select:focus, textarea:focus, input:focus { outline:none; border-color:var(--blue); }
+textarea { font-family:'SF Mono',Monaco,'Cascadia Code',monospace; min-height:120px; resize:vertical; line-height:1.5; }
+label { display:block; font-size:0.85rem; color:var(--text-dim); margin-bottom:0.4rem; }
+.field { margin-bottom:1rem; }
+
+/* Notifications */
+.url-list { display:flex; flex-direction:column; gap:0.5rem; margin-bottom:1rem; }
+.url-row { display:flex; gap:0.5rem; align-items:center; }
+.url-row input { flex:1; background:var(--surface2); border:1px solid var(--border); border-radius:6px; padding:0.5rem 0.75rem; color:var(--text); font-size:0.85rem; font-family:monospace; }
+.url-row input:focus { outline:none; border-color:var(--blue); }
+.url-row input::placeholder { color:var(--text-dim); }
+.status-bar { display:flex; align-items:center; gap:0.5rem; margin-bottom:1rem; font-size:0.85rem; }
+.status-dot { width:8px; height:8px; border-radius:50%; }
+.status-active { background:var(--green); box-shadow:0 0 6px var(--green); }
+.status-inactive { background:var(--text-dim); }
+.help-box { background:var(--surface2); border-radius:8px; padding:1rem; margin-top:1rem; font-size:0.8rem; line-height:1.6; }
+.help-box code { background:var(--bg); padding:0.15rem 0.4rem; border-radius:3px; font-size:0.8rem; color:var(--blue); }
+.help-box h4 { margin-bottom:0.5rem; font-size:0.85rem; }
+
+/* Prompts */
+.source-badge { display:inline-block; padding:0.2rem 0.5rem; border-radius:4px; font-size:0.75rem; font-weight:600; }
+.source-config { background:#3b82f622; color:var(--blue); border:1px solid var(--blue); }
+.source-database { background:#22c55e22; color:var(--green); border:1px solid var(--green); }
+.example-card { background:var(--surface2); border:1px solid var(--border); border-radius:8px; padding:1rem; margin-bottom:0.75rem; }
+.example-card .field:last-child { margin-bottom:0; }
+.pattern-row { display:flex; gap:0.5rem; margin-bottom:0.5rem; align-items:center; }
+.pattern-row input { flex:1; }
+.test-result { background:var(--surface2); border:1px solid var(--border); border-radius:8px; padding:1rem; margin-top:1rem; }
+.test-result h3 { font-size:0.95rem; margin-bottom:0.5rem; }
+.score-badge { display:inline-block; padding:0.3rem 0.7rem; border-radius:6px; font-weight:700; font-size:1.1rem; }
+.score-healthy { background:#22c55e22; color:var(--green); }
+.score-degraded { background:#eab30822; color:var(--yellow); }
+.score-unhealthy { background:#f9731622; color:var(--orange); }
+.score-critical { background:#ef444422; color:var(--red); }
+.loading { color:var(--text-dim); font-style:italic; }
 
 .toast { position:fixed; bottom:2rem; right:2rem; padding:0.75rem 1.25rem; border-radius:8px; font-size:0.85rem; z-index:100; transition:opacity 0.3s; }
 .toast-success { background:#22c55e22; border:1px solid var(--green); color:var(--green); }
 .toast-error { background:#ef444422; border:1px solid var(--red); color:var(--red); }
 .toast-info { background:#3b82f622; border:1px solid var(--blue); color:var(--blue); }
-
-.help-box { background:var(--surface2); border-radius:8px; padding:1rem; margin-top:1rem; font-size:0.8rem; line-height:1.6; }
-.help-box code { background:var(--bg); padding:0.15rem 0.4rem; border-radius:3px; font-size:0.8rem; color:var(--blue); }
-.help-box h4 { margin-bottom:0.5rem; font-size:0.85rem; }
-
-.status-bar { display:flex; align-items:center; gap:0.5rem; margin-bottom:1rem; font-size:0.85rem; }
-.status-dot { width:8px; height:8px; border-radius:50%; }
-.status-active { background:var(--green); box-shadow:0 0 6px var(--green); }
-.status-inactive { background:var(--text-dim); }
 </style>
 </head>
-<body x-data="settingsApp()">
+<body x-data="settingsApp()" x-init="init()">
+
 <div class="header">
   <h1>dock<span>Llama</span></h1>
 </div>
 
 <nav>
   <a href="/">Dashboard</a>
-  <a href="/explorer.html">Log Explorer</a>
-  <a href="/digest.html">Digest</a>
-  <a href="/prompts.html">Prompts</a>
+  <a href="/insights.html">Insights</a>
   <a href="/settings.html" class="active">Settings</a>
 </nav>
 
-<div class="content">
-  <!-- Notifications Section -->
-  <div class="section">
-    <h2>Notifications</h2>
-    <p class="desc">Configure where DockLlama sends alerts when containers are unhealthy, restarted, or enter escalation mode. Uses <a href="https://github.com/caronc/apprise" target="_blank" style="color:var(--blue)">Apprise</a> — supports 80+ notification services.</p>
+<div class="layout">
+  <div class="sidebar">
+    <a :class="view==='notifications' && 'active'" @click="setView('notifications')">Notifications</a>
+    <a :class="view==='prompts' && 'active'" @click="setView('prompts')">Prompts</a>
+  </div>
 
-    <div class="status-bar">
-      <div class="status-dot" :class="urls.length > 0 ? 'status-active' : 'status-inactive'"></div>
-      <span x-text="urls.length > 0 ? urls.length + ' target(s) configured' : 'No notifications configured'"></span>
-    </div>
+  <div class="main">
+    <!-- ═══ NOTIFICATIONS ═══ -->
+    <div x-show="view==='notifications'" x-cloak>
+      <div class="content">
+        <div class="section">
+          <h2>Notifications</h2>
+          <p class="desc">Configure where DockLlama sends alerts when containers are unhealthy, restarted, or enter escalation mode. Uses <a href="https://github.com/caronc/apprise" target="_blank" style="color:var(--blue)">Apprise</a> — supports 80+ notification services.</p>
 
-    <div class="url-list">
-      <template x-for="(url, index) in urls" :key="index">
-        <div class="url-row">
-          <input type="text" x-model="urls[index]" placeholder="pover://user_key@api_token" @keydown.enter="save()">
-          <button class="btn-icon" @click="urls.splice(index, 1)" title="Remove">&times;</button>
+          <div class="status-bar">
+            <div class="status-dot" :class="urls.length > 0 ? 'status-active' : 'status-inactive'"></div>
+            <span x-text="urls.length > 0 ? urls.length + ' target(s) configured' : 'No notifications configured'"></span>
+          </div>
+
+          <div class="url-list">
+            <template x-for="(url, index) in urls" :key="index">
+              <div class="url-row">
+                <input type="text" x-model="urls[index]" placeholder="pover://user_key@api_token" @keydown.enter="saveNotifications()">
+                <button class="btn-icon" @click="urls.splice(index, 1)" title="Remove">&times;</button>
+              </div>
+            </template>
+          </div>
+
+          <div class="btn-row">
+            <button class="btn btn-secondary" @click="urls.push('')">+ Add URL</button>
+            <button class="btn btn-primary" @click="saveNotifications()" :disabled="savingNotifications">
+              <span x-text="savingNotifications ? 'Saving...' : 'Save'"></span>
+            </button>
+            <button class="btn btn-test" @click="testNotification()" :disabled="urls.length === 0 || testingNotification">
+              <span x-text="testingNotification ? 'Sending...' : 'Send Test'"></span>
+            </button>
+          </div>
+
+          <div class="help-box">
+            <h4>Common URL formats</h4>
+            <strong>Pushover:</strong> <code>pover://user_key@api_token</code><br>
+            <strong>Discord:</strong> <code>discord://webhook_id/webhook_token</code><br>
+            <strong>Gotify:</strong> <code>gotify://hostname/token</code><br>
+            <strong>Slack:</strong> <code>slack://token_a/token_b/token_c/#channel</code><br>
+            <strong>Telegram:</strong> <code>tgram://bot_token/chat_id</code><br>
+            <strong>Email:</strong> <code>mailto://user:pass@gmail.com</code><br>
+            <br>
+            See <a href="https://github.com/caronc/apprise/wiki" target="_blank" style="color:var(--blue)">Apprise wiki</a> for all supported services.
+            <br><br>
+            <em style="color:var(--text-dim)">Note: Changes apply immediately but are not persisted to config.yaml. Add URLs to your config file to make them permanent across restarts.</em>
+          </div>
         </div>
-      </template>
+      </div>
     </div>
 
-    <div class="btn-row">
-      <button class="btn btn-secondary" @click="urls.push('')">+ Add URL</button>
-      <button class="btn btn-primary" @click="save()" :disabled="saving">
-        <span x-text="saving ? 'Saving...' : 'Save'"></span>
-      </button>
-      <button class="btn btn-test" @click="testNotification()" :disabled="urls.length === 0 || testing">
-        <span x-text="testing ? 'Sending...' : 'Send Test'"></span>
-      </button>
-    </div>
+    <!-- ═══ PROMPTS ═══ -->
+    <div x-show="view==='prompts'" x-cloak>
+      <div class="content">
+        <div class="section">
+          <h2>Container Prompt Editor</h2>
+          <p class="desc">Configure per-container context prompts, scoring references, and known patterns. Changes saved to the database override config.yaml values and take effect on the next evaluation cycle.</p>
+          <div class="field">
+            <label>Select Container</label>
+            <select @change="loadPrompt($event.target.value)" x-model="selectedContainer" :disabled="loadingContainers">
+              <option value="" x-text="loadingContainers ? 'Loading containers...' : '— choose a container —'"></option>
+              <template x-for="c in containers" :key="c.name">
+                <option :value="c.name" x-text="c.name"></option>
+              </template>
+            </select>
+            <p x-show="loadingContainers" style="color:var(--text-dim); font-size:0.8rem; margin-top:0.4rem;">Fetching container list from Docker...</p>
+          </div>
+        </div>
 
-    <div class="help-box">
-      <h4>Common URL formats</h4>
-      <strong>Pushover:</strong> <code>pover://user_key@api_token</code><br>
-      <strong>Discord:</strong> <code>discord://webhook_id/webhook_token</code><br>
-      <strong>Gotify:</strong> <code>gotify://hostname/token</code><br>
-      <strong>Slack:</strong> <code>slack://token_a/token_b/token_c/#channel</code><br>
-      <strong>Telegram:</strong> <code>tgram://bot_token/chat_id</code><br>
-      <strong>Email:</strong> <code>mailto://user:pass@gmail.com</code><br>
-      <br>
-      See <a href="https://github.com/caronc/apprise/wiki" target="_blank" style="color:var(--blue)">Apprise wiki</a> for all supported services.
-      <br><br>
-      <em style="color:var(--text-dim)">Note: Changes apply immediately but are not persisted to config.yaml. Add URLs to your config file to make them permanent across restarts.</em>
+        <template x-if="selectedContainer && promptLoaded">
+          <div>
+            <div class="section">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+                <h2>Context Prompt</h2>
+                <span class="source-badge" :class="promptSource === 'database' ? 'source-database' : 'source-config'"
+                      x-text="promptSource === 'database' ? 'DB Override' : 'Config'"></span>
+              </div>
+              <p class="desc">Explain what's normal for this container. This text is appended to the system prompt as "Container-Specific Context."</p>
+              <div class="field">
+                <textarea x-model="contextPrompt" rows="8" placeholder="This is a PostgreSQL database. Shutdown FATAL messages are normal..."></textarea>
+              </div>
+            </div>
+
+            <div class="section">
+              <h2>Scoring References</h2>
+              <p class="desc">Reference scenarios that teach the AI how to score specific log patterns for this container. Each entry shows a real log pattern paired with the correct score and reasoning.</p>
+              <template x-for="(ex, i) in examples" :key="i">
+                <div class="example-card">
+                  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem;">
+                    <strong style="font-size:0.9rem;" x-text="'Example ' + (i+1)"></strong>
+                    <button class="btn-icon" @click="examples.splice(i, 1)" title="Remove">&times;</button>
+                  </div>
+                  <div class="field">
+                    <label>Label</label>
+                    <input type="text" x-model="ex.label" placeholder="Normal PostgreSQL shutdown (healthy)">
+                  </div>
+                  <div class="field">
+                    <label>Log Snippet</label>
+                    <textarea x-model="ex.log_snippet" rows="4" placeholder="FATAL: terminating connection..."></textarea>
+                  </div>
+                  <div style="display:flex; gap:1rem;">
+                    <div class="field" style="flex:1;">
+                      <label>Correct Status</label>
+                      <select x-model="ex.correct_status">
+                        <option value="healthy">healthy</option>
+                        <option value="degraded">degraded</option>
+                        <option value="unhealthy">unhealthy</option>
+                        <option value="critical">critical</option>
+                      </select>
+                    </div>
+                    <div class="field" style="flex:1;">
+                      <label>Correct Score</label>
+                      <input type="number" x-model.number="ex.correct_score" min="0" max="100">
+                    </div>
+                  </div>
+                  <div class="field">
+                    <label>Reasoning</label>
+                    <textarea x-model="ex.reasoning" rows="2" placeholder="Why this score is correct..."></textarea>
+                  </div>
+                </div>
+              </template>
+              <button class="btn" @click="examples.push({label:'',log_snippet:'',correct_status:'healthy',correct_score:95,reasoning:''})">+ Add Example</button>
+            </div>
+
+            <div class="section">
+              <h2>Known Patterns</h2>
+              <p class="desc">Regex patterns that tag matching log lines with metadata (e.g., [ROUTINE: description]). Tags help the AI understand which errors are expected.</p>
+              <template x-for="(kp, i) in knownPatterns" :key="i">
+                <div class="pattern-row">
+                  <input type="text" x-model="kp.pattern" placeholder="regex pattern" style="flex:2;">
+                  <input type="text" x-model="kp.tag" placeholder="[ROUTINE: description]" style="flex:2;">
+                  <button class="btn-icon" @click="knownPatterns.splice(i, 1)" title="Remove">&times;</button>
+                </div>
+              </template>
+              <button class="btn" @click="knownPatterns.push({pattern:'',tag:'[ROUTINE: ]'})" style="margin-top:0.5rem;">+ Add Pattern</button>
+            </div>
+
+            <div class="section">
+              <div class="btn-row">
+                <button class="btn btn-primary" @click="savePrompt()" :disabled="savingPrompt">
+                  <span x-text="savingPrompt ? 'Saving...' : 'Save to Database'"></span>
+                </button>
+                <button class="btn btn-test" @click="testPrompt()" :disabled="testingPrompt">
+                  <span x-text="testingPrompt ? 'Testing...' : 'Test Against Current Logs'"></span>
+                </button>
+                <button class="btn btn-danger" @click="revertToConfig()" x-show="promptSource === 'database'">Revert to Config</button>
+              </div>
+
+              <template x-if="testResult">
+                <div class="test-result">
+                  <h3>Test Result</h3>
+                  <div style="display:flex; gap:1.5rem; align-items:center; margin-bottom:0.75rem;">
+                    <span class="score-badge" :class="scoreClass(testResult.health_score)" x-text="testResult.health_score"></span>
+                    <span style="font-size:0.95rem; font-weight:600;" x-text="testResult.status.toUpperCase()"></span>
+                    <span style="color:var(--text-dim); font-size:0.85rem;" x-text="'Confidence: ' + testResult.confidence + '%'"></span>
+                    <span style="color:var(--text-dim); font-size:0.85rem;" x-text="testResult.eval_time_seconds + 's'"></span>
+                  </div>
+                  <p style="font-size:0.85rem; line-height:1.5;" x-text="testResult.summary"></p>
+                </div>
+              </template>
+            </div>
+          </div>
+        </template>
+
+        <template x-if="selectedContainer && !promptLoaded">
+          <div style="text-align:center; padding:2rem;">
+            <p class="loading">Loading prompt configuration...</p>
+          </div>
+        </template>
+      </div>
     </div>
   </div>
 </div>
 
 <!-- Toast -->
-<div class="toast" :class="toast.class" x-show="toast.show" x-transition.opacity x-text="toast.message"></div>
+<div x-show="toast.show" x-transition class="toast" :class="'toast-' + toast.type" x-text="toast.msg"
+     @click="toast.show = false"></div>
 
 <script>
 function settingsApp() {
   return {
+    view: 'notifications',
+    // Notifications
     urls: [],
-    saving: false,
-    testing: false,
-    toast: { show: false, message: '', class: 'toast-info' },
+    savingNotifications: false,
+    testingNotification: false,
+    // Prompts
+    containers: [],
+    loadingContainers: true,
+    selectedContainer: '',
+    promptLoaded: false,
+    promptSource: 'config',
+    contextPrompt: '',
+    examples: [],
+    knownPatterns: [],
+    savingPrompt: false,
+    testingPrompt: false,
+    testResult: null,
+    // Toast
+    toast: { show: false, msg: '', type: 'success' },
 
     async init() {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('view')) this.view = params.get('view');
+
+      // Load notifications
       try {
         const resp = await fetch('/api/alerts');
         const data = await resp.json();
         this.urls = data.urls || [];
-      } catch (e) {
-        this.showToast('Failed to load alert config', 'toast-error');
-      }
+      } catch(e) { this.showToast('Failed to load alert config', 'error'); }
+
+      // Load containers for prompts
+      this.loadingContainers = true;
+      try {
+        const r = await fetch('/api/containers');
+        this.containers = await r.json();
+      } catch(e) { this.showToast('Failed to load containers', 'error'); }
+      this.loadingContainers = false;
     },
 
-    async save() {
-      this.saving = true;
-      // Filter out empty strings
+    setView(v) {
+      this.view = v;
+      history.replaceState(null, '', '/settings.html?view=' + v);
+    },
+
+    // ── Notifications ──
+    async saveNotifications() {
+      this.savingNotifications = true;
       const cleanUrls = this.urls.filter(u => u.trim() !== '');
       try {
         const resp = await fetch('/api/alerts', {
-          method: 'PUT',
-          headers: {'Content-Type': 'application/json'},
+          method: 'PUT', headers: {'Content-Type': 'application/json'},
           body: JSON.stringify({ urls: cleanUrls }),
         });
         if (!resp.ok) throw new Error('Save failed');
         this.urls = cleanUrls;
-        this.showToast('Saved — ' + cleanUrls.length + ' target(s) active', 'toast-success');
-      } catch (e) {
-        this.showToast('Failed to save: ' + e.message, 'toast-error');
-      }
-      this.saving = false;
+        this.showToast('Saved — ' + cleanUrls.length + ' target(s) active', 'success');
+      } catch(e) { this.showToast('Failed to save: ' + e.message, 'error'); }
+      this.savingNotifications = false;
     },
 
     async testNotification() {
-      this.testing = true;
+      this.testingNotification = true;
       try {
         const resp = await fetch('/api/alerts/test', { method: 'POST' });
         const data = await resp.json();
-        if (resp.ok && data.success) {
-          this.showToast('Test notification sent!', 'toast-success');
-        } else if (resp.ok && !data.success) {
-          this.showToast('Notification delivery failed — check URLs', 'toast-error');
-        } else {
-          const err = data.detail || 'Unknown error';
-          this.showToast(err, 'toast-error');
-        }
-      } catch (e) {
-        this.showToast('Request failed: ' + e.message, 'toast-error');
-      }
-      this.testing = false;
+        if (resp.ok && data.success) this.showToast('Test notification sent!', 'success');
+        else this.showToast(data.detail || 'Delivery failed — check URLs', 'error');
+      } catch(e) { this.showToast('Request failed: ' + e.message, 'error'); }
+      this.testingNotification = false;
     },
 
-    showToast(message, cls) {
-      this.toast = { show: true, message, class: cls };
-      setTimeout(() => { this.toast.show = false; }, 3500);
-    }
+    // ── Prompts ──
+    async loadPrompt(name) {
+      if (!name) { this.promptLoaded = false; return; }
+      this.promptLoaded = false;
+      this.testResult = null;
+      try {
+        const r = await fetch(`/api/containers/${name}/prompt`);
+        if (!r.ok) throw new Error('Not found');
+        const data = await r.json();
+        this.contextPrompt = data.context_prompt || '';
+        this.examples = (data.examples || []).map(e => ({...e}));
+        this.knownPatterns = (data.known_patterns || []).map(p => ({...p}));
+        this.promptSource = data.source;
+        this.promptLoaded = true;
+      } catch(e) { this.showToast('Failed to load prompt config', 'error'); }
+    },
+
+    async savePrompt() {
+      this.savingPrompt = true;
+      try {
+        const body = {
+          context_prompt: this.contextPrompt || null,
+          examples: this.examples.filter(e => e.label || e.log_snippet),
+          known_patterns: this.knownPatterns.filter(p => p.pattern),
+        };
+        const r = await fetch(`/api/containers/${this.selectedContainer}/prompt`, {
+          method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body),
+        });
+        if (!r.ok) throw new Error('Save failed');
+        this.promptSource = 'database';
+        this.showToast('Saved to database', 'success');
+      } catch(e) { this.showToast('Save failed: ' + e.message, 'error'); }
+      this.savingPrompt = false;
+    },
+
+    async testPrompt() {
+      this.testingPrompt = true;
+      this.testResult = null;
+      try {
+        const body = {
+          context_prompt: this.contextPrompt || null,
+          examples: this.examples.filter(e => e.label || e.log_snippet),
+          known_patterns: this.knownPatterns.filter(p => p.pattern),
+        };
+        const r = await fetch(`/api/containers/${this.selectedContainer}/test-prompt`, {
+          method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body),
+        });
+        if (!r.ok) throw new Error('Test failed');
+        this.testResult = await r.json();
+      } catch(e) { this.showToast('Test failed: ' + e.message, 'error'); }
+      this.testingPrompt = false;
+    },
+
+    async revertToConfig() {
+      if (!confirm('Delete database overrides and revert to config.yaml values?')) return;
+      try {
+        const r = await fetch(`/api/containers/${this.selectedContainer}/prompt`, { method: 'DELETE' });
+        if (!r.ok) throw new Error('Delete failed');
+        await this.loadPrompt(this.selectedContainer);
+        this.showToast('Reverted to config.yaml', 'success');
+      } catch(e) { this.showToast('Revert failed: ' + e.message, 'error'); }
+    },
+
+    scoreClass(score) {
+      if (score >= 80) return 'score-healthy';
+      if (score >= 40) return 'score-degraded';
+      if (score >= 10) return 'score-unhealthy';
+      return 'score-critical';
+    },
+
+    showToast(msg, type) {
+      this.toast = { show: true, msg, type };
+      setTimeout(() => this.toast.show = false, 3000);
+    },
   };
 }
 </script>
