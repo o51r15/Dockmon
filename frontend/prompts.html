@@ -79,15 +79,16 @@ label { display:block; font-size:0.85rem; color:var(--text-dim); margin-bottom:0
   <!-- Container Selector -->
   <div class="section">
     <h2>Container Prompt Editor</h2>
-    <p class="desc">Configure per-container context prompts, few-shot examples, and known patterns. Changes saved to the database override config.yaml values and take effect on the next evaluation cycle.</p>
+    <p class="desc">Configure per-container context prompts, scoring references, and known patterns. Changes saved to the database override config.yaml values and take effect on the next evaluation cycle.</p>
     <div class="field">
       <label>Select Container</label>
-      <select @change="loadPrompt($event.target.value)" x-model="selectedContainer">
-        <option value="">— choose a container —</option>
+      <select @change="loadPrompt($event.target.value)" x-model="selectedContainer" :disabled="loadingContainers">
+        <option value="" x-text="loadingContainers ? 'Loading containers...' : '— choose a container —'"></option>
         <template x-for="c in containers" :key="c.name">
           <option :value="c.name" x-text="c.name"></option>
         </template>
       </select>
+      <p x-show="loadingContainers" style="color:var(--text-dim); font-size:0.8rem; margin-top:0.4rem;">Fetching container list from Docker...</p>
     </div>
   </div>
 
@@ -108,8 +109,8 @@ label { display:block; font-size:0.85rem; color:var(--text-dim); margin-bottom:0
 
       <!-- Examples -->
       <div class="section">
-        <h2>Few-Shot Examples</h2>
-        <p class="desc">Calibration examples showing the AI how to score specific log patterns for this container.</p>
+        <h2>Scoring References</h2>
+        <p class="desc">Reference scenarios that teach the AI how to score specific log patterns for this container. Each entry shows a real log pattern paired with the correct score and reasoning.</p>
         <template x-for="(ex, i) in examples" :key="i">
           <div class="example-card">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem;">
@@ -192,7 +193,9 @@ label { display:block; font-size:0.85rem; color:var(--text-dim); margin-bottom:0
   </template>
 
   <template x-if="selectedContainer && !loaded">
-    <p class="loading">Loading prompt configuration...</p>
+    <div style="text-align:center; padding:2rem;">
+      <p class="loading">Loading prompt configuration...</p>
+    </div>
   </template>
 </div>
 
@@ -204,6 +207,7 @@ label { display:block; font-size:0.85rem; color:var(--text-dim); margin-bottom:0
 function promptEditor() {
   return {
     containers: [],
+    loadingContainers: true,
     selectedContainer: '',
     loaded: false,
     source: 'config',
@@ -217,9 +221,15 @@ function promptEditor() {
     toast: { show: false, msg: '', type: 'success' },
 
     async init() {
-      const r = await fetch('/api/containers');
-      const data = await r.json();
-      this.containers = data.filter(c => c.running || true);
+      this.loadingContainers = true;
+      try {
+        const r = await fetch('/api/containers');
+        const data = await r.json();
+        this.containers = data;
+      } catch(e) {
+        this.showToast('Failed to load containers', 'error');
+      }
+      this.loadingContainers = false;
     },
 
     async loadPrompt(name) {
