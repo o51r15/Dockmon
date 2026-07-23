@@ -59,6 +59,7 @@ class DockLlamaConfig(BaseModel):
     cooldowns: CooldownConfig = CooldownConfig()
     alerts: AlertConfig = AlertConfig()
     digest: DigestConfig = DigestConfig()
+    dependency_groups: dict[str, list[str]] = {}
 
     @field_validator("containers")
     @classmethod

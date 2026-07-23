@@ -56,3 +56,15 @@ alerts:
 digest:
   enabled: true
   schedule_cron: "0 7 * * *"
+
+# Dependency groups define ordered restart sequences.
+# If any member needs a restart, ALL members restart in the order listed.
+# Use for cross-compose-file dependencies (e.g., VPN + torrent client).
+dependency_groups:
+  vpn_stack:
+    - gluetun
+    - qbittorrent
+    - prowlarr
+  # database_stack:
+  #   - my-db
+  #   - my-app

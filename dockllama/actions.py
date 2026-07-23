@@ -27,6 +27,21 @@ class ActionResult:
     log_snapshot: str = ""
 
 
+
+def resolve_dependency_group(
+    container_name: str,
+    dependency_groups: dict[str, list[str]],
+) -> tuple[str | None, list[str] | None]:
+    """Check if a container belongs to a dependency group.
+    
+    Returns (group_name, ordered_member_list) or (None, None).
+    The member list defines restart order — first member restarts first.
+    """
+    for group_name, members in dependency_groups.items():
+        if container_name in members:
+            return group_name, list(members)  # preserve config order
+    return None, None
+
 def _get_cooldown_state(conn: sqlite3.Connection, container: str) -> dict | None:
     """Fetch current cooldown state for a container."""
     row = conn.execute(
@@ -134,6 +149,8 @@ def execute_action(
     log_snapshot: str = "",
     compose_group: str | None = None,
     group_container_names: list[str] | None = None,
+    dependency_group_name: str | None = None,
+    dependency_group_members: list[str] | None = None,
 ) -> ActionResult:
     """
     Decide and execute an action based on the AI evaluation.
@@ -186,7 +203,9 @@ def execute_action(
     # Dry-run mode
     if dry_run:
         group_msg = ""
-        if compose_group and group_container_names:
+        if dependency_group_name and dependency_group_members:
+            group_msg = f" [dependency group '{dependency_group_name}': would restart in order: {' → '.join(dependency_group_members)}]"
+        elif compose_group and group_container_names:
             group_msg = f" [compose group '{compose_group}': would restart {', '.join(group_container_names)}]"
         logger.info("[%s] DRY RUN: would restart (confidence=%d, reason=%s)%s",
                      name, result.confidence, result.root_cause_category, group_msg)
@@ -198,8 +217,11 @@ def execute_action(
             log_snapshot=log_snapshot,
         )
 
-    # Execute restart — compose group or single container
-    if compose_group and group_container_names and len(group_container_names) > 1:
+    # Execute restart — dependency group (ordered), compose group, or single container
+    if dependency_group_name and dependency_group_members and len(dependency_group_members) > 1:
+        logger.info("[%s] Restarting dependency group '%s' in order: %s",
+                     name, dependency_group_name, " → ".join(dependency_group_members))
+    elif compose_group and group_container_names and len(group_container_names) > 1:
         logger.info("[%s] Restarting compose group '%s': %s",
                      name, compose_group, ", ".join(group_container_names))
     else:
@@ -216,9 +238,18 @@ def execute_action(
     conn.commit()
 
     try:
-        # Determine which containers to restart
+        # Determine which containers to restart (dependency group takes precedence)
         containers_to_restart = [container]
-        if compose_group and group_container_names and len(group_container_names) > 1:
+        restart_order_names = None
+        if dependency_group_name and dependency_group_members and len(dependency_group_members) > 1:
+            client = docker.from_env()
+            all_running = {c.name: c for c in client.containers.list()}
+            # Use dependency group order (defined in config)
+            containers_to_restart = [
+                all_running[n] for n in dependency_group_members if n in all_running
+            ]
+            restart_order_names = dependency_group_members
+        elif compose_group and group_container_names and len(group_container_names) > 1:
             client = docker.from_env()
             all_running = {c.name: c for c in client.containers.list()}
             containers_to_restart = [
@@ -241,9 +272,17 @@ def execute_action(
                 all_ok = False
                 logger.warning("[%s] %s status is '%s' after restart", name, c.name, c.status)
 
-        _update_cooldown(conn, name, cooldown_cfg, state)
+        # Log cooldown for each container in the group to prevent cascading restarts
         restarted_names = [c.name for c in containers_to_restart]
-        group_note = f" (compose group: {', '.join(restarted_names)})" if len(restarted_names) > 1 else ""
+        for rname in restarted_names:
+            rstate = _get_cooldown_state(conn, rname)
+            _update_cooldown(conn, rname, cooldown_cfg, rstate)
+        if dependency_group_name:
+            group_note = f" (dependency group '{dependency_group_name}': {' → '.join(restarted_names)})"
+        elif len(restarted_names) > 1:
+            group_note = f" (compose group: {', '.join(restarted_names)})"
+        else:
+            group_note = ""
 
         if all_ok:
             return ActionResult(

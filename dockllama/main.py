@@ -19,7 +19,7 @@ from dockllama.docker_client import get_client, get_logs, list_containers, get_c
 from dockllama.log_pipeline import process_logs
 from dockllama.log_analyzer import analyze_logs
 from dockllama.ai_engine import evaluate, EvaluationContext, EvaluationResult
-from dockllama.actions import execute_action
+from dockllama.actions import execute_action, resolve_dependency_group
 from dockllama.alerts import (
     init_alerts, alert_restart, alert_dry_run, alert_escalation,
     alert_cooldown_skip, alert_error,
@@ -308,12 +308,19 @@ async def _process_container(container_cfg, container, cfg: DockLlamaConfig, con
     if group:
         group_names = [c.name for c in cfg.containers if c.enabled and c.compose_group == group]
 
+    # Resolve dependency group (takes precedence over compose group for restart ordering)
+    dep_group_name, dep_group_members = resolve_dependency_group(
+        container_cfg.name, cfg.dependency_groups
+    )
+
     action = execute_action(
         result=result, container=container, conn=conn,
         cooldown_cfg=cfg.cooldowns, dry_run=cfg.monitoring.dry_run,
         log_snapshot=log_snapshot,
         compose_group=group,
         group_container_names=group_names,
+        dependency_group_name=dep_group_name,
+        dependency_group_members=dep_group_members,
     )
 
     if action.action_taken != "none":
