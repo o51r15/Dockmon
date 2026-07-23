@@ -70,7 +70,7 @@ Renamed across 32 files — Python package dir, imports, Docker image, CI/CD, co
 
 ## Upcoming
 
-**Recommended execution order across phases:** Phase 7 (telemetry, read-only enrichment) → Phase 8.1–8.3 (context injection, prompt-level) → Phase 6.2 (dependency groups, touches restart logic) → Phase 8.4 (prompt UI) → Phase 9+ (longer-term).
+**Recommended execution order across phases:** Phase 7 (telemetry, read-only enrichment) → Phase 8.1–8.3 (context injection, prompt-level) → Phase 6.2 (dependency groups, touches restart logic) → Phase 8.4 (prompt UI) → Phase 9 (model validation) → Phase 7B (stats history) → Phase 6.5-6.6 (health checks, blackout windows) → Phase 10+ (learning mode, fleet, UI improvements).
 
 ### Phase 6 — Advanced Remediation & Alerting
 
@@ -110,6 +110,32 @@ Expand the LLM schema beyond `recommended_action: "restart" | "none"`.
 
 #### 6.4 Multi-Container Failure Correlation
 Detect containers failing within 60s of each other and surface correlated failures in the dashboard and digest.
+
+
+#### 6.5 HTTP Health Checks *(inspired by darthnorse/dockmon)*
+
+External endpoint monitoring — complementary to our AI-driven log evaluation. Some containers expose `/health` or `/api/status` endpoints that definitively answer "is this service working?" without needing log analysis.
+
+- New `health_checks` table: `(container TEXT PK, url TEXT, method TEXT DEFAULT 'GET', expected_status INT DEFAULT 200, interval_seconds INT DEFAULT 60, timeout_seconds INT DEFAULT 10, failure_threshold INT DEFAULT 3, enabled BOOL DEFAULT 0)`
+- `GET/PUT /api/containers/{name}/healthcheck` — configure per-container HTTP checks
+- Background task polls endpoints at configured interval
+- After `failure_threshold` consecutive failures → trigger the same action pipeline as an unhealthy AI eval (respect cooldowns, dependency groups, etc.)
+- Health check status shown on dashboard card (green/yellow/red dot separate from AI health score)
+- **DockLlama twist:** Feed health check failures INTO the AI eval context: "HTTP health check at /health returned 503 (3 consecutive failures)" — the AI sees both logs AND endpoint status
+
+
+#### 6.6 Blackout Windows (Maintenance Schedules) *(inspired by darthnorse/dockmon)*
+
+Suppress alerts and auto-restarts during scheduled maintenance periods.
+
+- New `blackout_windows` table: `(id INTEGER PK, name TEXT, days TEXT, start_time TEXT, end_time TEXT, enabled BOOL DEFAULT 1)`
+- `days` is JSON array of weekday ints (0=Mon, 6=Sun); supports overnight spans (start > end)
+- Settings UI: add/edit/delete blackout windows under Settings → Notifications
+- During active blackout: skip alert notifications, defer auto-restarts, still log events and run evals
+- After blackout ends: post-blackout health check scans all containers, sends deferred alerts for any in failed state
+- Dashboard banner when blackout is active: "Maintenance window active: [name]"
+- **DockLlama twist:** AI evals still run during blackout (data collection continues), but actions are suppressed. The digest includes a "during maintenance" section summarizing what happened while alerts were off.
+
 
 ---
 
@@ -160,6 +186,35 @@ Add explicit correlation rules to `v5_evaluate.txt`:
 - "High RAM usage (>90%) alongside 'Out of Memory' or 'Killed' logs indicates a critical failure requiring a restart."
 - "High CPU usage (>95%) alongside 'Timeout' or 'Deadlock' logs indicates a hung process requiring a restart."
 - Run a manual evaluation against a noisy container to verify LLM confidence scores improve with the added context
+
+### Phase 7B — Stats History & Resource Charts *(inspired by darthnorse/dockmon)*
+
+**Status:** NOT STARTED
+**Objective:** Persist CPU, memory, and network metrics over time so the dashboard shows historical resource usage, not just point-in-time snapshots. Currently Phase 7 fetches stats per eval cycle but discards them — this phase stores them and makes them browseable.
+
+#### 7B.1 Stats Persistence Table
+- New `container_stats` table: `(container TEXT, timestamp TEXT, cpu_percent REAL, mem_percent REAL, mem_usage_mb REAL, net_rx_bytes INT, net_tx_bytes INT)`
+- Record one row per container per eval cycle (piggyback on existing `get_container_stats()` call)
+- Configurable retention: `stats_retention_days` in config.yaml (default 7, max 90)
+- Auto-prune old rows in the existing DB maintenance task
+
+#### 7B.2 Stats API Endpoints
+- `GET /api/containers/{name}/stats?range=1h|24h|7d|30d` — returns time-series data for charts
+- `GET /api/stats/fleet?range=24h` — aggregate CPU/RAM across all containers (for fleet overview)
+- Downsample data for longer ranges (1-min resolution for 1h, 5-min for 24h, 1-hour for 7d+)
+
+#### 7B.3 Stats Charts in Dashboard
+- Add sparkline mini-charts to container cards on Dashboard (CPU + RAM, last 1h)
+- Container detail view (click card → modal/drawer) with full-size charts:
+  - CPU usage over time
+  - Memory usage over time
+  - Network I/O over time
+- Time-range selector: 1h / 24h / 7d / 30d
+- Use lightweight charting (Chart.js via CDN or inline SVG sparklines for Alpine.js)
+
+#### 7B.4 Fleet Resource Overview
+- Add a "Resource Usage" summary card to Dashboard header: total CPU %, total RAM used/available
+- Historical fleet-level charts on Insights → Health Trends page
 
 ---
 
@@ -436,10 +491,50 @@ containers:
 - **Config hot-reload:** Watch config file for changes, reload without restart
 - **Prometheus metrics:** `/metrics` endpoint for external monitoring (Grafana dashboards)
 
+### Phase 13 — Dashboard & UI Improvements *(inspired by darthnorse/dockmon)*
+
+**Status:** NOT STARTED
+**Objective:** Elevate the dashboard from a health grid to a full container management interface. Borrow proven UI patterns while keeping DockLlama's AI-first identity.
+
+#### 13.1 Container Detail View
+- Click any container card → opens a detail modal/drawer with tabs:
+  - **Overview:** AI health score, last eval summary, uptime, image, created date
+  - **Stats:** CPU/RAM/Network charts (from Phase 7B) with time-range selector
+  - **Logs:** Embedded log viewer (raw + filtered, like current Log Explorer but scoped to one container)
+  - **Events:** Event history for this container (restarts, evals, alerts)
+  - **AI Config:** Quick access to prompt editor (context_prompt, examples, known_patterns)
+- Deep-linkable: `/dashboard?container=gluetun` opens the detail view directly
+
+#### 13.2 Container Tagging
+- Auto-derive tags from Docker labels (`com.docker.compose.project` → project tag)
+- User-defined tags via API and Settings UI
+- Dashboard filter bar: filter container grid by tag (e.g., show only "vpn_stack" containers)
+- Tags stored in DB: `container_tags (container TEXT, tag TEXT, source TEXT, PRIMARY KEY(container, tag))`
+
+#### 13.3 Event Viewer Improvements
+- Full-text search across events
+- Filter by event type (restart, eval, alert, action)
+- Filter by severity
+- Clickable container names → jump to container detail
+- Pagination for large event histories
+- Export events as CSV
+
+#### 13.4 Dashboard KPI Bar
+- Summary bar at top of Dashboard: total containers, running/stopped counts, avg fleet health score, active alerts count
+- Collapsible (user preference saved in localStorage)
+
+#### 13.5 Container Actions from Dashboard
+- Start/stop/restart buttons directly on container cards (for stopped containers)
+- "Re-evaluate now" button → triggers immediate AI eval for a single container
+- Action confirmation modals for destructive operations
+
+
 ---
 
 ## Other Ideas (Unscheduled)
 
+- Container image update detection: check Docker Hub/GHCR for newer image digests, notify via alerts *(from dockmon)*
+- Bulk container operations: start/stop/restart multiple containers at once from dashboard *(from dockmon)*
 - Anomaly detection: statistical baseline deviation alerting without LLM involvement
 - Web config editor: edit config.yaml from the dashboard
 - Webhook integrations: accept incoming webhooks to trigger evaluations
