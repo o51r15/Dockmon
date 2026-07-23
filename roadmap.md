@@ -199,9 +199,9 @@ Allow setting different AI models per container from the Settings → Models UI.
 - **DockLlama twist:** Enables cost/speed optimization — fast model for simple containers, powerful model for complex ones
 
 
-### Phase 7B — Stats History & Resource Charts *(inspired by darthnorse/dockmon)*
+### Phase 7B — Stats History & Resource Charts *(inspired by darthnorse/dockmon)* ✅
 
-**Status:** NOT STARTED
+**Status:** COMPLETE
 **Objective:** Persist CPU, memory, and network metrics over time so the dashboard shows historical resource usage, not just point-in-time snapshots. Currently Phase 7 fetches stats per eval cycle but discards them — this phase stores them and makes them browseable.
 
 #### 7B.1 Stats Persistence Table
