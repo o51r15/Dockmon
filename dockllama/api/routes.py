@@ -9,7 +9,7 @@ from typing import Optional
 from fastapi import APIRouter, Query, HTTPException
 from pydantic import BaseModel
 
-from dockllama.config import DockLlamaConfig
+from dockllama.config import DockLlamaConfig, save_poll_interval, save_default_model
 from dockllama.db import init_db, get_container_prompt, save_container_prompt, delete_container_prompt, get_tested_models, save_tested_model
 from dockllama.docker_client import get_client, get_logs, list_containers
 from dockllama.log_pipeline import process_logs
@@ -768,10 +768,12 @@ async def set_default_model(req: SetDefaultModelRequest):
         finally:
             conn.close()
         cfg.ollama.default_model = req.model
-        return {"status": "ok", "role": "eval", "model": req.model, "note": "Change is runtime-only. Update config.yaml to persist across restarts."}
+        save_default_model(cfg, "eval")
+        return {"status": "ok", "role": "eval", "model": req.model}
     elif req.role == "digest":
         cfg.ollama.digest_model = req.model
-        return {"status": "ok", "role": "digest", "model": req.model, "note": "Change is runtime-only. Update config.yaml to persist across restarts."}
+        save_default_model(cfg, "digest")
+        return {"status": "ok", "role": "digest", "model": req.model}
     else:
         raise HTTPException(400, f"Invalid role: {req.role}")
 
@@ -887,11 +889,11 @@ async def update_interval(req: IntervalUpdateRequest):
     cfg = _get_cfg()
     old = cfg.monitoring.poll_interval_seconds
     cfg.monitoring.poll_interval_seconds = req.poll_interval_seconds
+    save_poll_interval(cfg)
     return {
         "status": "ok",
         "old_interval": old,
         "new_interval": req.poll_interval_seconds,
-        "note": "Change is runtime-only. Update config.yaml to persist across restarts.",
     }
 
 

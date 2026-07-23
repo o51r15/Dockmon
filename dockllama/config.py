@@ -54,6 +54,7 @@ class DigestConfig(BaseModel):
 
 
 class DockLlamaConfig(BaseModel):
+    _config_path: str = "/app/config/config.yaml"  # set after load
     ollama: OllamaConfig = OllamaConfig()
     monitoring: MonitoringConfig = MonitoringConfig()
     containers: list[ContainerConfig] = []
@@ -81,7 +82,50 @@ def load_config(path: str | Path = "/app/config/config.yaml") -> DockLlamaConfig
     with open(p) as f:
         raw = yaml.safe_load(f) or {}
 
-    return DockLlamaConfig(**raw)
+    cfg_obj = DockLlamaConfig(**raw)
+    cfg_obj._config_path = str(p)
+    return cfg_obj
+
+import re as _re
+
+
+def _update_yaml_field(config_path: str, field: str, value) -> None:
+    """Update a single top-level or nested field in config.yaml using regex, preserving comments and formatting."""
+    with open(config_path) as f:
+        text = f.read()
+
+    if isinstance(value, str):
+        val_str = value
+    elif isinstance(value, bool):
+        val_str = str(value).lower()
+    elif isinstance(value, (int, float)):
+        val_str = str(value)
+    else:
+        val_str = str(value)
+
+    # Match "  field: old_value" pattern (handles indented fields)
+    pattern = _re.compile(r"^(\s*" + _re.escape(field) + r":\s*)(.+)$", _re.MULTILINE)
+    new_text, count = pattern.subn(r"\g<1>" + val_str, text)
+
+    if count == 0:
+        raise ValueError(f"Field '{field}' not found in {config_path}")
+    if count > 1:
+        raise ValueError(f"Field '{field}' matched {count} times in {config_path} — ambiguous")
+
+    with open(config_path, "w") as f:
+        f.write(new_text)
+
+
+def save_poll_interval(cfg: "DockLlamaConfig") -> None:
+    """Persist the current poll_interval_seconds to config.yaml."""
+    _update_yaml_field(cfg._config_path, "poll_interval_seconds", cfg.monitoring.poll_interval_seconds)
+
+
+def save_default_model(cfg: "DockLlamaConfig", role: str = "eval") -> None:
+    """Persist the current default model to config.yaml."""
+    field = "default_model" if role == "eval" else "digest_model"
+    value = cfg.ollama.default_model if role == "eval" else cfg.ollama.digest_model
+    _update_yaml_field(cfg._config_path, field, value)
 
 
 if __name__ == "__main__":
