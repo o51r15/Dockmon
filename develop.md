@@ -2,8 +2,8 @@
 
 **Last updated:** July 24, 2026 (Session 7)
 **Repository:** https://github.com/o51r15/DockLlama (renamed from DockLlama)
-**Status:** Running in dry-run mode as Docker container, monitoring 15 production containers
-**Latest commit:** `c012c32` — Restructure nav: Dashboard, Insights (sidebar), Settings (sidebar)
+**Status:** Running in dry-run mode as Docker container, monitoring 18 production containers
+**Latest commit:** `8a72f4b` — Fix container-list duplication in save_containers_to_config
 
 ## FIRST TASK: Complete Rename ✅ DONE (Session 4)
 Renamed dockmon → dockllama across 32 files including Python package dir, imports, Docker image, CI/CD, compose, all user-facing strings.
@@ -342,6 +342,25 @@ Key commits: ad8df22, 851c8bc, 487f205, 98c4eb9, 7487933.
 
 ---
 
+
+### Session 7 — Code Audit, Bug Fixes, Dashboard Performance & Duplication Regression (July 24, 2026)
+
+**Fresh-eyes code audit** of Session 5-6 work surfaced 6 issues (bugs #6-#11), all fixed in `c012c32`:
+- #6 Ollama error-response handling with retry+backoff (GPU contention from the video transcoder made Ollama return `{"error": "Connection refused"}` at HTTP 200; the parser choked on the missing `response` key and returned garbage 50/0% verdicts, only for inspectarr since it happened to land during transcode).
+- #7 regex backreference injection in `_update_yaml_field` (lambda replacement).
+- #8 `save_containers_to_config` comment preservation (targeted text replacement).
+- #9 `_config_path` → `PrivateAttr()`. #10 DELETE `?purge=true` query param. #11 dead-code cleanup.
+
+**Dashboard performance overhaul** (`f7e71db`, `72e2c45`): eliminated multi-minute load times. Root cause was the eval loop blocking the shared asyncio event loop with synchronous Docker SDK calls, plus `/api/containers` making 19 Docker calls per request. Fixed by threading all blocking calls, starting the web server first, and caching the container snapshot. Dashboard now loads in 7-10ms even mid-eval.
+
+**Duplication regression** (`8a72f4b`): the #8 comment-preserving rewrite duplicated the container list on every save (18 → 36) because it mistook YAML list items for top-level keys. Duplicate keys broke Alpine's card rendering entirely. De-duplicated the live config, restarted, and fixed the detection logic. Old config backed up to `/tmp/config.yaml.bak` on the server.
+
+**README rewrite** (`d597415`): modern format modeled on popular self-hosted projects (Dozzle, Uptime Kuma) — centered header, badges, positioning vs log aggregators, full current feature list, Docker quickstart, complete API reference.
+
+Key commits: c012c32, 9bec74f, d597415, f7e71db, 72e2c45, 8a72f4b.
+
+---
+
 ## Lessons Learned
 
 - **Never send empty data to an LLM.** If nothing to evaluate, use auto-healthy fast path.
@@ -388,7 +407,10 @@ Key commits: ad8df22, 851c8bc, 487f205, 98c4eb9, 7487933.
 5. **Sparkline flicker causes layout shift** — RESOLVED (Session 6). CPU/RAM sparklines on dashboard cards disappear and reappear every few seconds, causing the entire grid to shift up and down. Likely caused by loadSparklines() clearing c._spark (triggering x-show hide) before the async fetch completes with new data. Fix: set new data atomically, or reserve sparkline height with CSS min-height so layout does not shift during loading.
 6. **Ollama error response not handled — eval failures under GPU contention** — RESOLVED (Session 7, c012c32). When another process (video transcoder) uses the GPU, Ollama returns HTTP 200 with `{"error": "Connection refused"}`. `ai_engine.py` doesn't check for the `error` key — tries to parse `data["response"]` which doesn't exist, hits JSONDecodeError, retries (same failure), returns fallback score 50 / 0% confidence. Fix: check `if "error" in data:` before parsing, add retry with backoff.
 7. **`_update_yaml_field()` regex backreference injection** — RESOLVED (Session 7). In `config.py`, `pattern.subn(r"\g<1>" + val_str, text)` interprets backslash sequences in val_str as regex backreferences. Fix: use lambda replacement.
-8. **`save_containers_to_config()` destroys YAML comments** — RESOLVED (Session 7). Uses `yaml.safe_load()` → modify → `yaml.dump()` which strips all comments including DB path warning. Fix: use ruamel.yaml or targeted text replacement.
-9. **`_config_path` Pydantic v2 private field** — MINOR. Should use `PrivateAttr()` instead of plain annotation. Works by accident.
-10. **DELETE body for container removal non-standard** — MINOR. Some proxies strip DELETE request bodies. Consider query param `?purge=true`.
-11. **Dead code in `addContainer()`** — MINOR. `dc._adding = false` after `loadDockerContainers()` references stale object.
+8. **`save_containers_to_config()` destroys YAML comments** — RESOLVED (Session 7, c012c32). Switched to targeted text-block replacement. NOTE: the first version of this fix had a regression (see #14) where list-item detection duplicated the container list — fixed in 8a72f4b.
+9. **`_config_path` Pydantic v2 private field** — RESOLVED (Session 7, c012c32). Now uses `PrivateAttr()`.
+10. **DELETE body for container removal non-standard** — RESOLVED (Session 7, c012c32). Now uses query param `?purge=true`.
+11. **Dead code in `addContainer()`** — RESOLVED (Session 7, c012c32). Reset moved into catch block.
+12. **Dashboard multi-minute load / spinner** — RESOLVED (Session 7, f7e71db + 72e2c45). The eval loop's synchronous Docker SDK calls (get_logs, get_container_stats) blocked the asyncio event loop for the whole ~3-minute cycle, and `/api/containers` made 19 more Docker calls per request (1 list + 18 per-container image inspects) that queued behind the eval loop's stats saturation. Fix: (a) wrapped all blocking Docker/preprocessor calls in `asyncio.to_thread()` and yield between containers; (b) start the web server before startup_check; (c) cache the container snapshot (8s TTL) so the dashboard reads from memory, offload the single refresh list call to a thread, and read image names from already-loaded attrs instead of per-container image inspects. Dashboard now serves in 7-10ms mid-eval.
+13. **Ollama model changed to phi4-mini via UI** — INFO, not a bug. During testing the default model was switched to `phi4-mini:latest` and poll interval to 345s. These persisted correctly to config.yaml (config persistence working as designed).
+14. **Container list duplicated → dashboard cards never render** — RESOLVED (Session 7, 8a72f4b). The comment-preserving `save_containers_to_config` (fix for #8) detected the end of the `containers:` block by looking for the next line starting at column 0 with a colon — but YAML list items (`- name: x`) also start at column 0, so it stopped at the first entry and replaced only the `containers:` header, leaving the old entries in place. Every save doubled the list (18 → 36). Duplicate `name` values collided on Alpine's `x-for :key="c.name"`, which makes Alpine silently refuse to render the entire list — so the dashboard showed "loading" forever with no cards. Fix: exclude dash-prefixed lines from top-level-key detection. Live config de-duplicated back to 18 and container restarted.
