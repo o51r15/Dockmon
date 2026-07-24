@@ -576,6 +576,7 @@ function settingsApp() {
       const params = new URLSearchParams(window.location.search);
       if (params.get('view')) this.view = params.get('view');
       if (this.view === 'models') this.loadModels();
+      if (this.view === 'containers') this.loadDockerContainers();
 
       // Load notifications
       try {
@@ -623,11 +624,11 @@ function settingsApp() {
         const data = await r.json();
         if (data.restored_config) {
           if (dc) dc._restored = true;
-          this.showToast('Restored previous configuration for ' + name, 'ok');
+          this.showToast('Restored previous configuration for ' + name, 'success');
         } else if (data.status === 'already_monitored') {
-          this.showToast(name + ' is already monitored', 'warn');
+          this.showToast(name + ' is already monitored', 'info');
         } else {
-          this.showToast('Now monitoring ' + name, 'ok');
+          this.showToast('Now monitoring ' + name, 'success');
         }
         await this.loadDockerContainers();
       } catch(e) {
@@ -652,7 +653,7 @@ function settingsApp() {
         const msg = this.removeDialog.purge
           ? 'Removed ' + this.removeDialog.name + ' and purged all data'
           : 'Removed ' + this.removeDialog.name + ' (history preserved)';
-        this.showToast(msg, 'ok');
+        this.showToast(msg, 'success');
         this.removeDialog.show = false;
         await this.loadDockerContainers();
       } catch(e) {
