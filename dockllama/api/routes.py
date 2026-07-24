@@ -97,7 +97,7 @@ async def get_containers() -> list[ContainerStatus]:
         row = conn.execute(
             """SELECT ai_status, confidence, root_cause_category, summary,
                       action_taken, timestamp, model_used, health_score
-               FROM events WHERE container = ? AND event_type = 'evaluation'
+               FROM events WHERE container = ? AND event_type IN ('evaluation', 'on_demand_eval')
                ORDER BY id DESC LIMIT 1""",
             (container_cfg.name,),
         ).fetchone()
