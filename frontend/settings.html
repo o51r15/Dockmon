@@ -483,9 +483,6 @@ label { display:block; font-size:0.85rem; color:var(--text-dim); margin-bottom:0
       </div>
     </div>
 
-  </div>
-</div>
-
     <!-- ═══ CONTAINERS ═══ -->
     <div x-show="view==='containers'" x-cloak>
       <div class="content">
@@ -529,6 +526,10 @@ label { display:block; font-size:0.85rem; color:var(--text-dim); margin-bottom:0
         </div>
       </div>
     </div>
+
+
+  </div>
+</div>
 
 <!-- Toast -->
 <div x-show="toast.show" x-transition class="toast" :class="'toast-' + toast.type" x-text="toast.msg"
