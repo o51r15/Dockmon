@@ -114,6 +114,22 @@ label { display:block; font-size:0.85rem; color:var(--text-dim); margin-bottom:0
 .interval-actions { display:flex; gap:0.75rem; align-items:center; margin-top:1rem; }
 .interval-note { font-size:0.75rem; color:var(--text-dim); margin-top:0.75rem; }
 
+
+/* Containers */
+.container-list { display:flex; flex-direction:column; gap:0.5rem; }
+.container-item { display:flex; align-items:center; gap:0.75rem; padding:0.6rem 0.75rem; background:var(--surface); border:1px solid var(--border); border-radius:6px; }
+.container-item.monitored { border-left:3px solid var(--blue); }
+.container-item .ci-name { font-weight:600; font-size:0.9rem; flex:1; }
+.container-item .ci-status { font-size:0.75rem; color:var(--text-dim); }
+.container-item .ci-image { font-size:0.7rem; color:var(--text-dim); max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.container-item .ci-actions { display:flex; gap:0.4rem; }
+.container-item .ci-actions button { font-size:0.75rem; padding:0.25rem 0.6rem; }
+.purge-dialog { position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:200; display:flex; align-items:center; justify-content:center; }
+.purge-dialog .dialog-box { background:var(--bg); border:1px solid var(--border); border-radius:10px; padding:1.5rem; max-width:400px; width:90%; }
+.purge-dialog h3 { margin:0 0 0.75rem; font-size:1rem; }
+.purge-dialog p { font-size:0.85rem; color:var(--text-dim); margin:0 0 1rem; }
+.purge-dialog .dialog-actions { display:flex; gap:0.5rem; justify-content:flex-end; }
+.restored-badge { background:var(--blue); color:white; font-size:0.65rem; padding:0.15rem 0.4rem; border-radius:3px; margin-left:0.5rem; }
 /* Models */
 .model-grid { display:grid; gap:0.75rem; }
 .model-card { background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:1rem; display:flex; justify-content:space-between; align-items:center; }
@@ -160,6 +176,7 @@ label { display:block; font-size:0.85rem; color:var(--text-dim); margin-bottom:0
     <a :class="view==='notifications' && 'active'" @click="setView('notifications')">Notifications</a>
     <a :class="view==='prompts' && 'active'" @click="setView('prompts')">Prompts</a>
     <a :class="view==='models' && 'active'" @click="setView('models')">Models</a>
+    <a :class="view==='containers' && 'active'" @click="setView('containers')">Containers</a>
   </div>
 
   <div class="main">
@@ -469,6 +486,50 @@ label { display:block; font-size:0.85rem; color:var(--text-dim); margin-bottom:0
   </div>
 </div>
 
+    <!-- ═══ CONTAINERS ═══ -->
+    <div x-show="view==='containers'" x-cloak>
+      <div class="content">
+        <div class="section">
+          <h2>Monitored Containers</h2>
+          <p class="desc">Select which Docker containers to monitor. Removing a container preserves its history by default — you can purge all data if starting fresh.</p>
+
+          <div class="container-list" x-show="dockerContainers.length">
+            <template x-for="dc in dockerContainers" :key="dc.name">
+              <div class="container-item" :class="dc.monitored && 'monitored'">
+                <div style="flex:1;">
+                  <div class="ci-name">
+                    <span x-text="dc.name"></span>
+                    <template x-if="dc._restored">
+                      <span class="restored-badge">Restored</span>
+                    </template>
+                  </div>
+                  <div class="ci-image" x-text="dc.image"></div>
+                </div>
+                <div class="ci-status" x-text="dc.status"></div>
+                <div class="ci-actions">
+                  <template x-if="!dc.monitored">
+                    <button class="btn btn-primary" @click="addContainer(dc.name)" :disabled="dc._adding">
+                      <span x-text="dc._adding ? 'Adding...' : 'Monitor'"></span>
+                    </button>
+                  </template>
+                  <template x-if="dc.monitored">
+                    <button class="btn" style="color:var(--red);border-color:var(--red);" @click="confirmRemove(dc.name)">Remove</button>
+                  </template>
+                </div>
+              </div>
+            </template>
+          </div>
+
+          <div x-show="!dockerContainers.length && !loadingContainers" style="color:var(--text-dim);font-size:0.85rem;padding:1rem 0;">
+            No Docker containers found.
+          </div>
+          <div x-show="loadingContainers" style="color:var(--text-dim);font-size:0.85rem;padding:1rem 0;">
+            Loading containers...
+          </div>
+        </div>
+      </div>
+    </div>
+
 <!-- Toast -->
 <div x-show="toast.show" x-transition class="toast" :class="'toast-' + toast.type" x-text="toast.msg"
      @click="toast.show = false"></div>
@@ -477,6 +538,9 @@ label { display:block; font-size:0.85rem; color:var(--text-dim); margin-bottom:0
 function settingsApp() {
   return {
     view: 'notifications',
+    dockerContainers: [],
+    loadingContainers: false,
+    removeDialog: { show: false, name: '', purge: false, removing: false },
     // Notifications
     urls: [],
     savingNotifications: false,
@@ -531,7 +595,69 @@ function settingsApp() {
     setView(v) {
       this.view = v;
       if (v === 'models' && this.models.length === 0) this.loadModels();
+      if (v === 'containers') this.loadDockerContainers();
       history.replaceState(null, '', '/settings.html?view=' + v);
+    },
+
+
+    // ── Containers ──
+    async loadDockerContainers() {
+      this.loadingContainers = true;
+      try {
+        const r = await fetch('/api/docker/containers');
+        this.dockerContainers = await r.json();
+      } catch(e) { console.error('Failed to load Docker containers', e); }
+      this.loadingContainers = false;
+    },
+
+    async addContainer(name) {
+      const dc = this.dockerContainers.find(c => c.name === name);
+      if (dc) dc._adding = true;
+      try {
+        const r = await fetch('/api/containers/add', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ name }),
+        });
+        const data = await r.json();
+        if (data.restored_config) {
+          if (dc) dc._restored = true;
+          this.showToast('Restored previous configuration for ' + name, 'ok');
+        } else if (data.status === 'already_monitored') {
+          this.showToast(name + ' is already monitored', 'warn');
+        } else {
+          this.showToast('Now monitoring ' + name, 'ok');
+        }
+        await this.loadDockerContainers();
+      } catch(e) {
+        this.showToast('Failed to add ' + name, 'error');
+      }
+      if (dc) dc._adding = false;
+    },
+
+    confirmRemove(name) {
+      this.removeDialog = { show: true, name, purge: false, removing: false };
+    },
+
+    async removeContainer() {
+      this.removeDialog.removing = true;
+      try {
+        const r = await fetch('/api/containers/' + encodeURIComponent(this.removeDialog.name), {
+          method: 'DELETE',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ purge: this.removeDialog.purge }),
+        });
+        const data = await r.json();
+        const msg = this.removeDialog.purge
+          ? 'Removed ' + this.removeDialog.name + ' and purged all data'
+          : 'Removed ' + this.removeDialog.name + ' (history preserved)';
+        this.showToast(msg, 'ok');
+        this.removeDialog.show = false;
+        await this.loadDockerContainers();
+      } catch(e) {
+        this.showToast('Failed to remove container', 'error');
+        this.removeDialog.removing = false;
+      }
     },
 
     // ── Notifications ──
@@ -781,5 +907,27 @@ function settingsApp() {
   };
 }
 </script>
+
+<!-- Purge Confirmation Dialog -->
+<template x-if="removeDialog.show">
+  <div class="purge-dialog" @click.self="removeDialog.show = false">
+    <div class="dialog-box">
+      <h3>Remove <span x-text="removeDialog.name"></span>?</h3>
+      <p>This container will no longer be monitored. Its configuration will be saved so it can be restored if re-added later.</p>
+      <p style="font-size:0.8rem;">Check the box below to permanently delete all history data (events, stats, baselines, prompts) for this container.</p>
+      <label style="display:flex;align-items:center;gap:0.5rem;margin-bottom:1rem;font-size:0.85rem;cursor:pointer;">
+        <input type="checkbox" x-model="removeDialog.purge">
+        <span>Purge all history data (cannot be undone)</span>
+      </label>
+      <div class="dialog-actions">
+        <button class="btn" @click="removeDialog.show = false">Cancel</button>
+        <button class="btn" style="background:var(--red);color:white;border-color:var(--red);" @click="removeContainer()" :disabled="removeDialog.removing">
+          <span x-text="removeDialog.removing ? 'Removing...' : (removeDialog.purge ? 'Remove & Purge' : 'Remove')"></span>
+        </button>
+      </div>
+    </div>
+  </div>
+</template>
+
 </body>
 </html>

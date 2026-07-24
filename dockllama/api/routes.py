@@ -9,8 +9,8 @@ from typing import Optional
 from fastapi import APIRouter, Query, HTTPException
 from pydantic import BaseModel
 
-from dockllama.config import DockLlamaConfig, save_poll_interval, save_default_model
-from dockllama.db import init_db, get_container_prompt, save_container_prompt, delete_container_prompt, get_tested_models, save_tested_model
+from dockllama.config import DockLlamaConfig, ContainerConfig, save_poll_interval, save_default_model, save_containers_to_config
+from dockllama.db import init_db, archive_container_config, restore_container_config, purge_container_data, get_container_prompt, save_container_prompt, delete_container_prompt, get_tested_models, save_tested_model
 from dockllama.docker_client import get_client, get_logs, list_containers
 from dockllama.log_pipeline import process_logs
 from dockllama.ai_engine import evaluate, EvaluationContext
@@ -896,6 +896,131 @@ async def update_interval(req: IntervalUpdateRequest):
         "new_interval": req.poll_interval_seconds,
     }
 
+
+
+
+# --- Container Management (Phase 9.4) ---
+
+@router.get("/docker/containers")
+async def list_docker_containers():
+    """List all Docker containers (running and stopped) with their monitoring status."""
+    cfg = _get_cfg()
+    client = get_client()
+    monitored = {c.name for c in cfg.containers}
+
+    result = []
+    for dc in client.containers.list(all=True):
+        result.append({
+            "name": dc.name,
+            "image": dc.image.tags[0] if dc.image.tags else "untagged",
+            "status": dc.status,
+            "running": dc.status == "running",
+            "monitored": dc.name in monitored,
+        })
+
+    result.sort(key=lambda x: (not x["monitored"], x["name"]))
+    return result
+
+
+class AddContainerRequest(BaseModel):
+    name: str
+    enabled: bool = True
+
+
+@router.post("/containers/add")
+async def add_container(req: AddContainerRequest):
+    """Add a container to monitoring. Restores archived config if available."""
+    cfg = _get_cfg()
+
+    # Check if already monitored
+    for c in cfg.containers:
+        if c.name == req.name:
+            return {"status": "already_monitored", "name": req.name}
+
+    # Check if container exists in Docker
+    client = get_client()
+    matches = [c for c in client.containers.list(all=True) if c.name == req.name]
+    if not matches:
+        raise HTTPException(404, f"Container '{req.name}' not found in Docker")
+
+    conn = init_db(cfg.monitoring.db_path)
+    try:
+        # Check for archived config
+        archived = restore_container_config(conn, req.name)
+        restored = False
+
+        if archived:
+            new_container = ContainerConfig(
+                name=req.name,
+                enabled=req.enabled,
+                ignore_patterns=archived.get("ignore_patterns", []),
+                compose_group=archived.get("compose_group"),
+                model_override=archived.get("model_override"),
+            )
+            restored = True
+        else:
+            new_container = ContainerConfig(name=req.name, enabled=req.enabled)
+
+        cfg.containers.append(new_container)
+        save_containers_to_config(cfg)
+
+        return {
+            "status": "added",
+            "name": req.name,
+            "restored_config": restored,
+            "archived_at": archived.get("archived_at") if archived else None,
+        }
+    finally:
+        conn.close()
+
+
+class RemoveContainerRequest(BaseModel):
+    purge: bool = False
+
+
+@router.delete("/containers/{container_name:path}")
+async def remove_container(container_name: str, req: RemoveContainerRequest):
+    """Remove a container from monitoring. Optionally purge all history data."""
+    cfg = _get_cfg()
+
+    # Find container in config
+    target = None
+    for c in cfg.containers:
+        if c.name == container_name:
+            target = c
+            break
+
+    if not target:
+        raise HTTPException(404, f"Container '{container_name}' is not monitored")
+
+    conn = init_db(cfg.monitoring.db_path)
+    try:
+        if req.purge:
+            # Delete everything including any archived config
+            deleted = purge_container_data(conn, container_name)
+        else:
+            # Archive config before removing
+            archive_container_config(
+                conn, container_name,
+                ignore_patterns=target.ignore_patterns,
+                compose_group=target.compose_group,
+                model_override=target.model_override,
+                enabled=target.enabled,
+            )
+            deleted = {}
+
+        # Remove from in-memory config
+        cfg.containers = [c for c in cfg.containers if c.name != container_name]
+        save_containers_to_config(cfg)
+
+        return {
+            "status": "removed",
+            "name": container_name,
+            "purged": req.purge,
+            "deleted_rows": deleted,
+        }
+    finally:
+        conn.close()
 
 
 # --- Stats History (Phase 7B) ---

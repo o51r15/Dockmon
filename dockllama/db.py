@@ -90,6 +90,15 @@ CREATE TABLE IF NOT EXISTS container_prompts (
     known_patterns TEXT,
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS container_config_archive (
+    container TEXT PRIMARY KEY,
+    ignore_patterns TEXT,
+    compose_group TEXT,
+    model_override TEXT,
+    enabled INTEGER DEFAULT 1,
+    archived_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 """
 
 
@@ -131,6 +140,67 @@ def verify_tables(conn: sqlite3.Connection) -> dict[str, int]:
         count = conn.execute(f"SELECT COUNT(*) FROM {name}").fetchone()[0]
         tables[name] = count
     return tables
+
+
+def archive_container_config(conn, container: str, ignore_patterns: list = None,
+                              compose_group: str = None, model_override: str = None,
+                              enabled: bool = True) -> None:
+    """Archive a container's config.yaml settings to DB before removal."""
+    import json
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    patterns_json = json.dumps(ignore_patterns) if ignore_patterns else None
+    conn.execute(
+        """INSERT INTO container_config_archive
+           (container, ignore_patterns, compose_group, model_override, enabled, archived_at)
+           VALUES (?, ?, ?, ?, ?, ?)
+           ON CONFLICT(container) DO UPDATE SET
+             ignore_patterns = excluded.ignore_patterns,
+             compose_group = excluded.compose_group,
+             model_override = excluded.model_override,
+             enabled = excluded.enabled,
+             archived_at = excluded.archived_at""",
+        (container, patterns_json, compose_group, model_override, int(enabled), now),
+    )
+    conn.commit()
+
+
+def restore_container_config(conn, container: str) -> dict | None:
+    """Restore archived config for a container. Returns None if no archive exists."""
+    import json
+    row = conn.execute(
+        "SELECT ignore_patterns, compose_group, model_override, enabled, archived_at "
+        "FROM container_config_archive WHERE container = ?",
+        (container,),
+    ).fetchone()
+    if not row:
+        return None
+    return {
+        "container": container,
+        "ignore_patterns": json.loads(row[0]) if row[0] else [],
+        "compose_group": row[1],
+        "model_override": row[2],
+        "enabled": bool(row[3]),
+        "archived_at": row[4],
+    }
+
+
+def purge_container_data(conn, container: str) -> dict:
+    """Delete ALL data for a container from every table. Returns counts of deleted rows."""
+    deleted = {}
+    for table, col in [
+        ("events", "container"),
+        ("container_stats", "container"),
+        ("baselines", "container"),
+        ("cooldowns", "container"),
+        ("container_prompts", "container"),
+        ("container_config_archive", "container"),
+    ]:
+        cursor = conn.execute(f"DELETE FROM {table} WHERE {col} = ?", (container,))
+        if cursor.rowcount:
+            deleted[table] = cursor.rowcount
+    conn.commit()
+    return deleted
 
 
 if __name__ == "__main__":

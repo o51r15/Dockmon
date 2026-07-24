@@ -116,6 +116,41 @@ def _update_yaml_field(config_path: str, field: str, value) -> None:
         f.write(new_text)
 
 
+
+def save_containers_to_config(cfg: "DockLlamaConfig") -> None:
+    """Rewrite the containers list in config.yaml. Preserves all other sections."""
+    p = Path(cfg._config_path)
+    with open(p) as f:
+        raw = yaml.safe_load(f) or {}
+
+    # Serialize containers from the live config
+    containers_data = []
+    for c in cfg.containers:
+        entry = {"name": c.name, "enabled": c.enabled}
+        if c.ignore_patterns:
+            entry["ignore_patterns"] = c.ignore_patterns
+        if c.compose_group:
+            entry["compose_group"] = c.compose_group
+        if c.model_override:
+            entry["model_override"] = c.model_override
+        if c.context_prompt:
+            entry["context_prompt"] = c.context_prompt
+        if c.examples:
+            entry["examples"] = [dict(e) for e in c.examples]
+        if c.known_patterns:
+            entry["known_patterns"] = [dict(kp) for kp in c.known_patterns]
+        containers_data.append(entry)
+
+    raw["containers"] = containers_data
+
+    # Also sync dependency_groups
+    if cfg.dependency_groups:
+        raw["dependency_groups"] = dict(cfg.dependency_groups)
+
+    with open(p, "w") as f:
+        yaml.dump(raw, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+
+
 def save_poll_interval(cfg: "DockLlamaConfig") -> None:
     """Persist the current poll_interval_seconds to config.yaml."""
     _update_yaml_field(cfg._config_path, "poll_interval_seconds", cfg.monitoring.poll_interval_seconds)
