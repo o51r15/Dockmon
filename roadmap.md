@@ -413,7 +413,9 @@ New "Containers" section on the Settings page for adding/removing monitored cont
 - Containers already in config.yaml are pre-checked
 - User can check new containers to add them to monitoring
 - User can uncheck containers to remove them from monitoring
-- On remove: prompt "Purge history data?" — if yes, delete all events/stats/baselines/cooldowns/prompts for that container from DB. If no, data is preserved and will be found again if the container is re-added later.
+- On remove: archive the container's full config block (ignore_patterns, context_prompt, examples, known_patterns, compose_group, model_override) to a `container_config_archive` DB table before deleting from config.yaml. Then prompt "Purge history data?" — if yes, delete all events/stats/baselines/cooldowns/prompts AND the config archive for that container. If no, both history and archived config are preserved.
+- On re-add: check `container_config_archive` for saved config. If found, restore all settings (ignore_patterns, context_prompt, known_patterns, compose_group, model_override, etc.) so the user doesn't lose their tuning. Show a note: "Restored previous configuration for this container."
+- The existing `container_prompts` table already stores context_prompt/examples/known_patterns in DB — the archive table covers the remaining config fields (ignore_patterns, compose_group, model_override, enabled) that only live in config.yaml.
 - Changes persist to config.yaml immediately (uses the targeted YAML update pattern from config persistence)
 
 **Interval Recalculation:**
