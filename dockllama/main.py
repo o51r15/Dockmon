@@ -141,26 +141,30 @@ async def monitor_cycle(cfg: DockLlamaConfig) -> None:
             await _process_container(container_cfg, running_map[container_cfg.name], cfg, conn)
         except Exception:
             logger.exception("Error processing container %s", container_cfg.name)
+        # Yield to event loop so web server can handle requests between containers
+        await asyncio.sleep(0)
 
     conn.close()
 
 
 async def _process_container(container_cfg, container, cfg: DockLlamaConfig, conn) -> None:
     """Process a single container: logs -> analyze -> evaluate -> act -> alert."""
-    # 1. Grab logs
-    raw_logs = get_logs(container, tail=cfg.monitoring.log_lines_per_check)
+    # 1. Grab logs (run in thread to avoid blocking event loop)
+    raw_logs = await asyncio.to_thread(get_logs, container, cfg.monitoring.log_lines_per_check)
 
     # 2. Analyze with structured preprocessor (v5)
-    summary = analyze_logs(
-        container_name=container_cfg.name,
-        raw_logs=raw_logs,
-        ignore_patterns=container_cfg.ignore_patterns,
-        known_patterns=container_cfg.known_patterns,
-        max_lines=cfg.monitoring.log_lines_per_check,
+    summary = await asyncio.to_thread(
+        lambda: analyze_logs(
+            container_name=container_cfg.name,
+            raw_logs=raw_logs,
+            ignore_patterns=container_cfg.ignore_patterns,
+            known_patterns=container_cfg.known_patterns,
+            max_lines=cfg.monitoring.log_lines_per_check,
+        )
     )
 
-    # Fetch resource metrics
-    metrics = get_container_stats(container)
+    # Fetch resource metrics (run in thread to avoid blocking event loop)
+    metrics = await asyncio.to_thread(get_container_stats, container)
     summary.cpu_percent = metrics["cpu_percent"]
     summary.mem_percent = metrics["mem_percent"]
 
@@ -177,11 +181,13 @@ async def _process_container(container_cfg, container, cfg: DockLlamaConfig, con
         logger.debug("Failed to save stats for %s: %s", container_cfg.name, e)
 
     # Also run old filter for backward compat (log snapshot, baseline)
-    batch = process_logs(
-        container_name=container_cfg.name,
-        raw_logs=raw_logs,
-        ignore_patterns=container_cfg.ignore_patterns,
-        max_lines=cfg.monitoring.log_lines_per_check,
+    batch = await asyncio.to_thread(
+        lambda: process_logs(
+            container_name=container_cfg.name,
+            raw_logs=raw_logs,
+            ignore_patterns=container_cfg.ignore_patterns,
+            max_lines=cfg.monitoring.log_lines_per_check,
+        )
     )
 
     cpu_str = f"{summary.cpu_percent}%" if summary.cpu_percent is not None else "N/A"
@@ -402,9 +408,7 @@ async def run(cfg: DockLlamaConfig) -> None:
     signal.signal(signal.SIGTERM, _handle_signal)
     signal.signal(signal.SIGINT, _handle_signal)
 
-    startup_check(cfg)
-
-    # Start web server
+    # Start web server FIRST so dashboard is immediately available
     app = create_app(cfg)
     web_config = uvicorn.Config(app, host="0.0.0.0", port=8556, log_level="warning")
     server = uvicorn.Server(web_config)
@@ -413,6 +417,8 @@ async def run(cfg: DockLlamaConfig) -> None:
         await server.serve()
 
     async def run_monitor():
+        # Run startup checks (non-blocking — web server is already accepting requests)
+        await asyncio.to_thread(startup_check, cfg)
         logger.info("Starting monitor loop...")
         while not _shutdown.is_set():
             try:
