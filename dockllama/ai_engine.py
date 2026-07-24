@@ -206,6 +206,33 @@ async def evaluate(
     # Parse response
     try:
         data = response.json()
+
+        # Check for Ollama-level error (e.g. GPU contention, model unloaded)
+        if "error" in data:
+            ollama_err = data["error"]
+            logger.warning("Ollama returned error for %s: %s — retrying in 5s", ctx.container_name, ollama_err)
+            await asyncio.sleep(5)
+            try:
+                async with httpx.AsyncClient(timeout=ollama_config.timeout_seconds) as client:
+                    response = await client.post(
+                        f"{ollama_config.base_url}/api/generate",
+                        json={
+                            "model": ctx.model,
+                            "system": system_prompt,
+                            "prompt": user_prompt,
+                            "format": "json",
+                            "stream": False,
+                            "think": False,
+                            "options": {"temperature": 0.1, "num_predict": 500},
+                        },
+                    )
+                    response.raise_for_status()
+                    data = response.json()
+                    if "error" in data:
+                        return _make_fallback(ctx.container_name, f"Ollama error after retry: {data['error']}"), ctx.prompt_version
+            except Exception as retry_err:
+                return _make_fallback(ctx.container_name, f"Ollama retry failed: {retry_err}"), ctx.prompt_version
+
         raw_text = data.get("response", "")
         parsed = json.loads(raw_text)
         result = EvaluationResult(**parsed)
@@ -215,7 +242,7 @@ async def evaluate(
             "Failed to parse Ollama response for %s: %s\nRaw: %s",
             ctx.container_name, e, raw_text[:500] if 'raw_text' in dir() else "no response",
         )
-        # Retry once
+        # Retry once for bad JSON
         try:
             async with httpx.AsyncClient(timeout=ollama_config.timeout_seconds) as client:
                 response = await client.post(
@@ -232,6 +259,8 @@ async def evaluate(
                 )
                 response.raise_for_status()
                 data = response.json()
+                if "error" in data:
+                    return _make_fallback(ctx.container_name, f"Ollama error on retry: {data['error']}"), ctx.prompt_version
                 raw_text = data.get("response", "")
                 parsed = json.loads(raw_text)
                 result = EvaluationResult(**parsed)

@@ -974,12 +974,8 @@ async def add_container(req: AddContainerRequest):
         conn.close()
 
 
-class RemoveContainerRequest(BaseModel):
-    purge: bool = False
-
-
 @router.delete("/containers/{container_name:path}")
-async def remove_container(container_name: str, req: RemoveContainerRequest):
+async def remove_container(container_name: str, purge: bool = False):
     """Remove a container from monitoring. Optionally purge all history data."""
     cfg = _get_cfg()
 
@@ -995,7 +991,7 @@ async def remove_container(container_name: str, req: RemoveContainerRequest):
 
     conn = init_db(cfg.monitoring.db_path)
     try:
-        if req.purge:
+        if purge:
             # Delete everything including any archived config
             deleted = purge_container_data(conn, container_name)
         else:
@@ -1016,7 +1012,7 @@ async def remove_container(container_name: str, req: RemoveContainerRequest):
         return {
             "status": "removed",
             "name": container_name,
-            "purged": req.purge,
+            "purged": purge,
             "deleted_rows": deleted,
         }
     finally:

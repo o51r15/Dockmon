@@ -633,8 +633,8 @@ function settingsApp() {
         await this.loadDockerContainers();
       } catch(e) {
         this.showToast('Failed to add ' + name, 'error');
+        if (dc) dc._adding = false;
       }
-      if (dc) dc._adding = false;
     },
 
     confirmRemove(name) {
@@ -644,10 +644,9 @@ function settingsApp() {
     async removeContainer() {
       this.removeDialog.removing = true;
       try {
-        const r = await fetch('/api/containers/' + encodeURIComponent(this.removeDialog.name), {
+        const purge = this.removeDialog.purge ? '?purge=true' : '';
+        const r = await fetch('/api/containers/' + encodeURIComponent(this.removeDialog.name) + purge, {
           method: 'DELETE',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({ purge: this.removeDialog.purge }),
         });
         const data = await r.json();
         const msg = this.removeDialog.purge

@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Optional
 
 import yaml
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, PrivateAttr, field_validator
 
 
 class OllamaConfig(BaseModel):
@@ -54,7 +54,7 @@ class DigestConfig(BaseModel):
 
 
 class DockLlamaConfig(BaseModel):
-    _config_path: str = "/app/config/config.yaml"  # set after load
+    _config_path: str = PrivateAttr(default="/app/config/config.yaml")
     ollama: OllamaConfig = OllamaConfig()
     monitoring: MonitoringConfig = MonitoringConfig()
     containers: list[ContainerConfig] = []
@@ -105,7 +105,7 @@ def _update_yaml_field(config_path: str, field: str, value) -> None:
 
     # Match "  field: old_value" pattern (handles indented fields)
     pattern = _re.compile(r"^(\s*" + _re.escape(field) + r":\s*)(.+)$", _re.MULTILINE)
-    new_text, count = pattern.subn(r"\g<1>" + val_str, text)
+    new_text, count = pattern.subn(lambda m: m.group(1) + val_str, text)
 
     if count == 0:
         raise ValueError(f"Field '{field}' not found in {config_path}")
@@ -118,12 +118,13 @@ def _update_yaml_field(config_path: str, field: str, value) -> None:
 
 
 def save_containers_to_config(cfg: "DockLlamaConfig") -> None:
-    """Rewrite the containers list in config.yaml. Preserves all other sections."""
+    """Rewrite the containers list in config.yaml. Preserves comments outside the containers block."""
+    import io
     p = Path(cfg._config_path)
     with open(p) as f:
-        raw = yaml.safe_load(f) or {}
+        original = f.read()
 
-    # Serialize containers from the live config
+    # Serialize just the containers list
     containers_data = []
     for c in cfg.containers:
         entry = {"name": c.name, "enabled": c.enabled}
@@ -141,14 +142,50 @@ def save_containers_to_config(cfg: "DockLlamaConfig") -> None:
             entry["known_patterns"] = [dict(kp) for kp in c.known_patterns]
         containers_data.append(entry)
 
-    raw["containers"] = containers_data
+    buf = io.StringIO()
+    yaml.dump({"containers": containers_data}, buf, default_flow_style=False, sort_keys=False, allow_unicode=True)
+    new_block = buf.getvalue().strip()
 
-    # Also sync dependency_groups
+    # Find the containers block in the original text and replace just that section
+    lines = original.split("\n")
+    start_idx = None
+    end_idx = len(lines)
+    for i, line in enumerate(lines):
+        if _re.match(r"^containers:\s*$", line):
+            start_idx = i
+        elif start_idx is not None and i > start_idx:
+            # A new top-level key (no leading whitespace, has colon) ends the block
+            if line and not line[0].isspace() and not line.startswith("#") and ":" in line:
+                end_idx = i
+                break
+
+    if start_idx is not None:
+        result = "\n".join(lines[:start_idx]) + "\n" + new_block + "\n" + "\n".join(lines[end_idx:])
+    else:
+        # No containers block found — append
+        result = original.rstrip() + "\n\n" + new_block + "\n"
+
+    # Sync dependency_groups too if present
     if cfg.dependency_groups:
-        raw["dependency_groups"] = dict(cfg.dependency_groups)
+        dep_buf = io.StringIO()
+        yaml.dump({"dependency_groups": dict(cfg.dependency_groups)}, dep_buf, default_flow_style=False, sort_keys=False, allow_unicode=True)
+        dep_block = dep_buf.getvalue().strip()
+
+        dep_lines = result.split("\n")
+        dep_start = None
+        dep_end = len(dep_lines)
+        for i, line in enumerate(dep_lines):
+            if _re.match(r"^dependency_groups:\s*$", line):
+                dep_start = i
+            elif dep_start is not None and i > dep_start:
+                if line and not line[0].isspace() and not line.startswith("#") and ":" in line:
+                    dep_end = i
+                    break
+        if dep_start is not None:
+            result = "\n".join(dep_lines[:dep_start]) + "\n" + dep_block + "\n" + "\n".join(dep_lines[dep_end:])
 
     with open(p, "w") as f:
-        yaml.dump(raw, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+        f.write(result)
 
 
 def save_poll_interval(cfg: "DockLlamaConfig") -> None:
