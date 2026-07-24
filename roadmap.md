@@ -404,11 +404,21 @@ Once a model passes validation, its average response time unlocks the interval c
 
 **Per-container overrides:** If a container has a different `model_override` or custom send interval, that container's eval time uses its own model's benchmark rather than the system default. The total work time calculation sums each container's individual expected eval time.
 
-#### 9.4 Dynamic Recalculation
+#### 9.4 Container Management & Dynamic Recalculation
 
-- When containers are added or removed from monitoring, display a banner: "Container count changed. Recalculating recommended interval..." with a "Retest" button
-- Retest is **suggested but not required** — the system recalculates using the existing per-model benchmark times and the new container count
-- If a container specifies a `model_override` for a model that hasn't been tested yet, that model must pass validation (9.2) before the container can be enabled
+New "Containers" section on the Settings page for adding/removing monitored containers.
+
+**Container Selection UI:**
+- Show all running Docker containers (from Docker API) with checkboxes
+- Containers already in config.yaml are pre-checked
+- User can check new containers to add them to monitoring
+- User can uncheck containers to remove them from monitoring
+- On remove: prompt "Purge history data?" — if yes, delete all events/stats/baselines/cooldowns/prompts for that container from DB. If no, data is preserved and will be found again if the container is re-added later.
+- Changes persist to config.yaml immediately (uses the targeted YAML update pattern from config persistence)
+
+**Interval Recalculation:**
+- When container count changes, auto-recalculate recommended interval using existing benchmark times
+- Display a banner: "Container count changed — recommended interval updated to Xm Ys"
 - Store interval calculation inputs in DB so they survive restarts: `(model, avg_ms, container_count, calculated_interval, user_override, updated_at)`
 
 #### 9.5 First-Run Setup Wizard (Stretch)
@@ -417,11 +427,11 @@ Optional guided setup shown when DockLlama starts with no config or an empty con
 
 1. **Ollama connection** — enter URL, test connectivity, show available models
 2. **Model selection** — pick a model, run validation tests (9.2)
-3. **Container selection** — show running Docker containers, pick which to monitor
+3. **Container selection** — show all running Docker containers with checkboxes, pick which to monitor. Same UI component as 9.4's container management so it's reusable.
 4. **Interval recommendation** — auto-calculate and display the slider (9.3)
 5. **Save** — write config and start monitoring
 
-If the wizard is skipped, all of this is accessible from the Settings page.
+All of the above is also accessible from the Settings page (9.4 container management, 9.1-9.3 model/interval). The wizard is just a guided flow through the same components.
 
 ---
 
