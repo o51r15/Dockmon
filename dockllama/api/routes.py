@@ -68,30 +68,61 @@ class EventRecord(BaseModel):
 
 # --- Endpoints ---
 
+# ── Cached Docker container snapshot (avoids blocking dashboard on Docker daemon) ──
+_container_snapshot: dict = {"data": None, "ts": 0.0}
+_SNAPSHOT_TTL = 8.0  # seconds
+
+
+async def _get_container_snapshot() -> dict:
+    """Return {name: {image, status, running}} for all containers.
+
+    Cached for a few seconds and fetched in a worker thread so the dashboard
+    never blocks the event loop or competes with the eval loop's Docker calls.
+    Reads image name from already-loaded attrs (no per-container image inspect).
+    """
+    now = time.monotonic()
+    snap = _container_snapshot["data"]
+    if snap is not None and (now - _container_snapshot["ts"]) < _SNAPSHOT_TTL:
+        return snap
+
+    client = get_client()
+
+    def _fetch() -> dict:
+        result = {}
+        for c in client.containers.list(all=True):
+            attrs = c.attrs or {}
+            image = attrs.get("Config", {}).get("Image", "untagged")
+            status = c.status
+            result[c.name] = {
+                "image": image,
+                "status": status,
+                "running": status == "running",
+            }
+        return result
+
+    data = await asyncio.to_thread(_fetch)
+    _container_snapshot["data"] = data
+    _container_snapshot["ts"] = now
+    return data
+
+
 @router.get("/containers")
 async def get_containers() -> list[ContainerStatus]:
     """List all monitored containers with their latest evaluation."""
     cfg = _get_cfg()
-    client = get_client()
-    running = {c.name: c for c in client.containers.list(all=True)}
+    snapshot = await _get_container_snapshot()
     conn = init_db(cfg.monitoring.db_path)
 
     result = []
-    enabled_names = {c.name for c in cfg.containers if c.enabled}
 
     for container_cfg in cfg.containers:
         if not container_cfg.enabled:
             continue
 
-        docker_container = running.get(container_cfg.name)
-        image = ""
-        container_status = "not found"
-        is_running = False
-
-        if docker_container:
-            image = docker_container.image.tags[0] if docker_container.image.tags else "untagged"
-            container_status = docker_container.status
-            is_running = container_status == "running"
+        info = snapshot.get(container_cfg.name)
+        image = info["image"] if info else ""
+        container_status = info["status"] if info else "not found"
+        is_running = info["running"] if info else False
 
         # Get latest evaluation
         row = conn.execute(
@@ -125,6 +156,7 @@ async def get_containers() -> list[ContainerStatus]:
 
     conn.close()
     return result
+
 
 
 @router.get("/containers/{name}/logs")
