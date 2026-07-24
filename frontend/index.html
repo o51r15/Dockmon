@@ -314,10 +314,10 @@ function dashboard() {
     },
 
     async loadSparklines() {
-      for (const c of this.containers) {
+      await Promise.all(this.containers.map(async (c) => {
         try {
           const r = await fetch(`/api/containers/${encodeURIComponent(c.name)}/stats?range=1h`);
-          if (!r.ok) continue;
+          if (!r.ok) return;
           const d = await r.json();
           const cpuVals = d.data.map(p => p.cpu || 0);
           const memVals = d.data.map(p => p.mem || 0);
@@ -328,7 +328,7 @@ function dashboard() {
             mem_now: last ? (last.mem != null ? last.mem + '%' : '-') : '-',
           };
         } catch(e) { /* silent */ }
-      }
+      }));
     },
 
     // ── Detail Drawer ──
