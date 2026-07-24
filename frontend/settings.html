@@ -607,7 +607,7 @@ function settingsApp() {
       this.loadingContainers = true;
       try {
         const r = await fetch('/api/docker/containers');
-        this.dockerContainers = await r.json();
+        this.dockerContainers = (await r.json()).map(c => ({...c, _adding: false, _restored: false}));
       } catch(e) { console.error('Failed to load Docker containers', e); }
       this.loadingContainers = false;
     },
