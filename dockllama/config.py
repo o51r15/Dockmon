@@ -154,8 +154,9 @@ def save_containers_to_config(cfg: "DockLlamaConfig") -> None:
         if _re.match(r"^containers:\s*$", line):
             start_idx = i
         elif start_idx is not None and i > start_idx:
-            # A new top-level key (no leading whitespace, has colon) ends the block
-            if line and not line[0].isspace() and not line.startswith("#") and ":" in line:
+            # A new top-level key ends the block. Must NOT match YAML list items
+            # ("- name: ...") which also start at column 0 — only real mapping keys.
+            if line and line[0] not in (" ", "\t", "-", "#") and ":" in line:
                 end_idx = i
                 break
 
@@ -178,7 +179,7 @@ def save_containers_to_config(cfg: "DockLlamaConfig") -> None:
             if _re.match(r"^dependency_groups:\s*$", line):
                 dep_start = i
             elif dep_start is not None and i > dep_start:
-                if line and not line[0].isspace() and not line.startswith("#") and ":" in line:
+                if line and line[0] not in (" ", "\t", "-", "#") and ":" in line:
                     dep_end = i
                     break
         if dep_start is not None:
